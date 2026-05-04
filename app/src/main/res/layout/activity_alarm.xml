@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#FF1A1A2E">
+
+    <TextView
+        android:id="@+id/alarmLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Upcoming Event"
+        android:textColor="#AAAACC"
+        android:textSize="14sp"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/alarmTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Event"
+        android:textColor="@android:color/white"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/alarmTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#AAAACC"
+        android:textSize="18sp"
+        android:layout_marginBottom="48dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/dismissButton"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Dismiss"
+        android:textSize="18sp"
+        android:layout_marginBottom="16dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/snoozeButton"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Snooze"
+        android:textSize="18sp"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:textColor="@android:color/white" />
+
+</LinearLayout>

@@ -16,7 +16,7 @@ object NotificationHelper {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ALARM, "Event Alarms", NotificationManager.IMPORTANCE_HIGH).apply {
-                setSound(null, null)   // vibration handled by AlarmService directly
+                setSound(null, null)
                 enableVibration(false)
             }
         )
@@ -25,6 +25,17 @@ object NotificationHelper {
     fun buildAlarmNotification(context: Context, summary: String, startTime: String, uid: String): Notification {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val base = uid.hashCode()
+
+        val alarmActivityIntent = Intent(context, AlarmActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra("summary", summary)
+            putExtra("start_time", startTime)
+            putExtra("uid", uid)
+        }
+
+        // Full-screen intent: opens AlarmActivity over the lock screen when the phone is idle.
+        // Also used as the tap target when the notification shade is visible.
+        val fullScreenPi = PendingIntent.getActivity(context, base + 2, alarmActivityIntent, flags)
 
         val dismissPi = PendingIntent.getBroadcast(context, base,
             Intent(context, ActionReceiver::class.java).apply {
@@ -39,9 +50,6 @@ object NotificationHelper {
                 putExtra("uid", uid)
             }, flags)
 
-        val openPi = PendingIntent.getActivity(context, 0,
-            Intent(context, MainActivity::class.java), flags)
-
         return NotificationCompat.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(summary)
@@ -49,7 +57,8 @@ object NotificationHelper {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setContentIntent(openPi)
+            .setFullScreenIntent(fullScreenPi, true)
+            .setContentIntent(fullScreenPi)
             .addAction(0, "Dismiss", dismissPi)
             .addAction(0, "Snooze 4 min", snoozePi)
             .build()
