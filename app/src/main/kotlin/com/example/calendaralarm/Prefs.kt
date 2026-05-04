@@ -37,8 +37,12 @@ class Prefs(context: Context) {
         get() = p.getString("ics_last_modified", "") ?: ""
         set(v) = p.edit().putString("ics_last_modified", v).apply()
 
+    var icsContentHash: String
+        get() = p.getString("ics_content_hash", "") ?: ""
+        set(v) = p.edit().putString("ics_content_hash", v).apply()
+
     fun clearIcsCache() {
-        p.edit().remove("ics_etag").remove("ics_last_modified").apply()
+        p.edit().remove("ics_etag").remove("ics_last_modified").remove("ics_content_hash").apply()
     }
 
     var activeAlarmCodes: Set<Int>
