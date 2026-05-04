@@ -82,6 +82,22 @@ object IcsParser {
                     result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay))
             }
         }
+
+        // Orphan overrides: RECURRENCE-ID instances whose master is absent from the file.
+        // Outlook sometimes exports only the modified instance (e.g. a rescheduled occurrence
+        // of a series whose root DTSTART predates the ICS export window). Treat them as
+        // standalone events.
+        val masterUids = masters.mapNotNull { it.uid }.toSet()
+        for ((uid, ovList) in overrides) {
+            if (uid in masterUids) continue
+            for (ov in ovList) {
+                val ovStart = ov.dtStart ?: continue
+                val ovEnd = ov.dtEnd ?: ovStart.plus(ov.duration ?: Duration.ofHours(1))
+                if (ovStart < windowEnd && ovEnd > windowStart)
+                    result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay))
+            }
+        }
+
         return result
     }
 
