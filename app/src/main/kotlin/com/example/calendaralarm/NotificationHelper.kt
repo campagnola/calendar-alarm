@@ -22,7 +22,8 @@ object NotificationHelper {
         )
     }
 
-    fun buildAlarmNotification(context: Context, summary: String, startTime: String, uid: String): Notification {
+    fun buildAlarmNotification(context: Context, summary: String, startTime: String,
+                                uid: String, location: String, meetingUrl: String?): Notification {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val base = uid.hashCode()
 
@@ -31,10 +32,10 @@ object NotificationHelper {
             putExtra("summary", summary)
             putExtra("start_time", startTime)
             putExtra("uid", uid)
+            putExtra("location", location)
+            putExtra("meeting_url", meetingUrl)
         }
 
-        // Full-screen intent: opens AlarmActivity over the lock screen when the phone is idle.
-        // Also used as the tap target when the notification shade is visible.
         val fullScreenPi = PendingIntent.getActivity(context, base + 2, alarmActivityIntent, flags)
 
         val dismissPi = PendingIntent.getBroadcast(context, base,
@@ -48,19 +49,37 @@ object NotificationHelper {
                 putExtra("summary", summary)
                 putExtra("start_time", startTime)
                 putExtra("uid", uid)
+                putExtra("location", location)
+                putExtra("meeting_url", meetingUrl)
             }, flags)
 
-        return NotificationCompat.Builder(context, CHANNEL_ALARM)
+        val contentText = buildString {
+            append("Starts at $startTime")
+            if (location.isNotEmpty()) append(" · $location")
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(summary)
-            .setContentText("Starts at $startTime")
+            .setContentText(contentText)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setFullScreenIntent(fullScreenPi, true)
             .setContentIntent(fullScreenPi)
             .addAction(0, "Dismiss", dismissPi)
-            .addAction(0, "Snooze 4 min", snoozePi)
-            .build()
+            .addAction(0, "Snooze", snoozePi)
+
+        if (meetingUrl != null) {
+            val joinPi = PendingIntent.getBroadcast(context, base + 3,
+                Intent(context, ActionReceiver::class.java).apply {
+                    action = ActionReceiver.ACTION_JOIN
+                    putExtra("meeting_url", meetingUrl)
+                }, flags)
+            val label = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
+            builder.addAction(0, label, joinPi)
+        }
+
+        return builder.build()
     }
 }

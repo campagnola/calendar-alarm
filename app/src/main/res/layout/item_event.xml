@@ -23,4 +23,23 @@
         android:textColor="#555555"
         android:layout_marginTop="2dp" />
 
+    <TextView
+        android:id="@+id/eventLocation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textColor="#555555"
+        android:layout_marginTop="2dp"
+        android:visibility="gone" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/joinButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Join"
+        android:textSize="13sp"
+        android:layout_marginTop="6dp"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+        android:visibility="gone" />
+
 </LinearLayout>

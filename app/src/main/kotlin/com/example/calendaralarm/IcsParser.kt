@@ -10,7 +10,9 @@ data class CalendarEvent(
     val summary: String,
     val start: LocalDateTime,
     val end: LocalDateTime,
-    val isAllDay: Boolean
+    val isAllDay: Boolean,
+    val location: String = "",
+    val meetingUrl: String? = null
 )
 
 object IcsParser {
@@ -41,6 +43,8 @@ object IcsParser {
                         "RECURRENCE-ID" -> parseDt(key, value)?.let { cur!!.recurrenceId = it.first }
                         "EXDATE"        -> value.split(',').forEach { v ->
                                                parseDt(key, v.trim())?.let { cur!!.exDates.add(it.first) } }
+                        "LOCATION"      -> cur!!.location = unescape(value)
+                        "DESCRIPTION"   -> cur!!.description = unescape(value)
                     }
                 }
             }
@@ -66,11 +70,13 @@ object IcsParser {
                 if (dtStart !in instanceOverrideTimes) {
                     val dtEnd = dtStart.plus(duration)
                     if (dtStart < windowEnd && dtEnd > windowStart)
-                        result.add(CalendarEvent(uid, raw.summary ?: "(No title)", dtStart, dtEnd, raw.isAllDay))
+                        result.add(CalendarEvent(uid, raw.summary ?: "(No title)", dtStart, dtEnd, raw.isAllDay,
+                            raw.location, extractMeetingUrl(raw.location, raw.description)))
                 }
             } else {
                 for (occ in expandRrule(rrule, dtStart, excludeTimes, windowStart, windowEnd))
-                    result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay))
+                    result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay,
+                        raw.location, extractMeetingUrl(raw.location, raw.description)))
             }
 
             // Include modified instances that fall in the window
@@ -79,7 +85,9 @@ object IcsParser {
                 val ovDuration = Duration.between(ovStart, ov.dtEnd ?: ovStart.plus(ov.duration ?: duration))
                 val ovEnd = ovStart.plus(ovDuration)
                 if (ovStart < windowEnd && ovEnd > windowStart)
-                    result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay))
+                    result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
+                        ov.location.ifEmpty { raw.location },
+                        extractMeetingUrl(ov.location.ifEmpty { raw.location }, ov.description.ifEmpty { raw.description })))
             }
         }
 
@@ -94,7 +102,8 @@ object IcsParser {
                 val ovStart = ov.dtStart ?: continue
                 val ovEnd = ov.dtEnd ?: ovStart.plus(ov.duration ?: Duration.ofHours(1))
                 if (ovStart < windowEnd && ovEnd > windowStart)
-                    result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay))
+                    result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
+                        ov.location, extractMeetingUrl(ov.location, ov.description)))
             }
         }
 
@@ -251,6 +260,8 @@ object IcsParser {
         var rrule: String? = null,
         var recurrenceId: LocalDateTime? = null,
         var isAllDay: Boolean = false,
+        var location: String = "",
+        var description: String = "",
         val exDates: MutableSet<LocalDateTime> = mutableSetOf()
     )
 
@@ -289,6 +300,14 @@ object IcsParser {
         Regex("(\\d+)M").find(time)?.groupValues?.get(1)?.toLongOrNull()?.let { d = d.plusMinutes(it) }
         return d
     }
+
+    private val meetingUrlRegex = Regex(
+        """https://[^\s<>"]*(?:teams\.microsoft\.com|zoom\.us)[^\s<>"]*""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun extractMeetingUrl(location: String, description: String): String? =
+        meetingUrlRegex.find(location)?.value ?: meetingUrlRegex.find(description)?.value
 
     private fun unescape(s: String) = s
         .replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")

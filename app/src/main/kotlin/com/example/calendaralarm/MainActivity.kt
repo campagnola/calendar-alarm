@@ -3,8 +3,10 @@ package com.example.calendaralarm
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -13,6 +15,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.calendaralarm.databinding.ActivityMainBinding
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,13 +24,11 @@ import java.net.URL
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
-    private val timeFmt = DateTimeFormatter.ofPattern("h:mm a")
 
     private var lastLoadMs = 0L
     private var lastLoadDate: LocalDate? = null
@@ -96,8 +97,6 @@ class MainActivity : AppCompatActivity() {
                     val now = LocalDateTime.now()
                     val today = now.toLocalDate()
 
-                    // Parse a 25-hour window so we can schedule alarms for events
-                    // starting later today or early tomorrow, then filter to today for display.
                     val upcoming = IcsParser.parse(text, now, now.plusHours(25))
                     scheduleAlarms(upcoming)
 
@@ -106,11 +105,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             when {
-                todayEvents == null  -> showMessage("Failed to load calendar. Check URL and network.")
+                todayEvents == null   -> showMessage("Failed to load calendar. Check URL and network.")
                 todayEvents.isEmpty() -> showMessage("No events today.")
                 else -> {
                     binding.statusText.visibility = View.GONE
-                    for (event in todayEvents) addEventCard(event)
+                    val fmt = timeFormatter(this@MainActivity)
+                    for (event in todayEvents) addEventCard(event, fmt)
                 }
             }
         }
@@ -118,25 +118,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleAlarms(events: List<CalendarEvent>) {
         val advanceMs = prefs.advanceMinutes * 60_000L
-        val validKeys = mutableSetOf<String>()
+        val now = System.currentTimeMillis()
         for (event in events) {
-            val key = AlarmScheduler.alarmKey(event)
-            validKeys.add(key)
             val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
-            if (triggerMs > System.currentTimeMillis() && !prefs.isAlarmScheduled(key)) {
+            if (triggerMs > now) {
+                Log.i("CalAlarm", "MainActivity scheduling alarm for '${event.summary}' trigger=${triggerMs - now}ms from now")
                 AlarmScheduler.scheduleEventAlarm(this, event, triggerMs)
-                prefs.addScheduledAlarm(key)
             }
         }
-        prefs.retainScheduledAlarms(validKeys)
     }
 
-    private fun addEventCard(event: CalendarEvent) {
+    private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
         view.findViewById<TextView>(R.id.eventTitle).text = event.summary
         view.findViewById<TextView>(R.id.eventTime).text = if (event.isAllDay) "All day"
-            else "${event.start.format(timeFmt)} – ${event.end.format(timeFmt)}"
+            else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
+
+        val locationView = view.findViewById<TextView>(R.id.eventLocation)
+        if (event.location.isNotEmpty()) {
+            locationView.text = event.location
+            locationView.visibility = View.VISIBLE
+        }
+
+        val joinButton = view.findViewById<MaterialButton>(R.id.joinButton)
+        val meetingUrl = event.meetingUrl
+        if (meetingUrl != null) {
+            joinButton.text = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
+            joinButton.visibility = View.VISIBLE
+            joinButton.setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(meetingUrl)))
+            }
+        }
+
         binding.scheduleContainer.addView(view)
     }
 

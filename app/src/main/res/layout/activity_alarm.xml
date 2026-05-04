@@ -33,7 +33,26 @@
         android:layout_height="wrap_content"
         android:textColor="#AAAACC"
         android:textSize="18sp"
-        android:layout_marginBottom="48dp" />
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/alarmLocation"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#AAAACC"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:layout_marginBottom="32dp"
+        android:visibility="gone" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/joinButton"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Join"
+        android:textSize="16sp"
+        android:layout_marginBottom="16dp"
+        android:visibility="gone" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/dismissButton"

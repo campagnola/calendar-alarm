@@ -5,10 +5,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 object AlarmScheduler {
-    private val timeFmt = DateTimeFormatter.ofPattern("h:mm a")
     private const val POLL_REQUEST_CODE = 9001
 
     fun schedulePoll(context: Context, delayMs: Long) {
@@ -26,12 +24,15 @@ object AlarmScheduler {
     fun scheduleEventAlarm(context: Context, event: CalendarEvent, triggerAtMs: Long) {
         val am = context.getSystemService(AlarmManager::class.java)
         val requestCode = alarmRequestCode(event)
+        val startTime = event.start.format(timeFormatter(context))
         val pi = PendingIntent.getBroadcast(
             context, requestCode,
             Intent(context, AlarmReceiver::class.java).apply {
                 putExtra("summary", event.summary)
-                putExtra("start_time", event.start.format(timeFmt))
+                putExtra("start_time", startTime)
                 putExtra("uid", event.uid)
+                putExtra("location", event.location)
+                putExtra("meeting_url", event.meetingUrl)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -40,7 +41,8 @@ object AlarmScheduler {
         } catch (_: SecurityException) {}
     }
 
-    fun scheduleSnooze(context: Context, triggerAtMs: Long, summary: String, startTime: String, uid: String) {
+    fun scheduleSnooze(context: Context, triggerAtMs: Long, summary: String, startTime: String,
+                       uid: String, location: String, meetingUrl: String?) {
         val am = context.getSystemService(AlarmManager::class.java)
         val pi = PendingIntent.getBroadcast(
             context, uid.hashCode() xor 0xABCD,
@@ -48,6 +50,8 @@ object AlarmScheduler {
                 putExtra("summary", summary)
                 putExtra("start_time", startTime)
                 putExtra("uid", uid)
+                putExtra("location", location)
+                putExtra("meeting_url", meetingUrl)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

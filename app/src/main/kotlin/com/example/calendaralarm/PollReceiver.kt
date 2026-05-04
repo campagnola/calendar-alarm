@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import kotlinx.coroutines.*
+import android.util.Log
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalDateTime
@@ -35,25 +36,21 @@ class PollReceiver : BroadcastReceiver() {
         if (newEtag.isNotEmpty())        prefs.icsEtag = newEtag
         if (newLastModified.isNotEmpty()) prefs.icsLastModified = newLastModified
 
-        val now = LocalDateTime.now()
-        val windowEnd = now.plusHours(25) // slightly past 24h to catch near-boundary events
-        val events = IcsParser.parse(icsText, now, windowEnd)
+        val nowDt = LocalDateTime.now()
+        val events = IcsParser.parse(icsText, nowDt, nowDt.plusHours(25))
 
         val advanceMs = prefs.advanceMinutes * 60_000L
-        val validKeys = mutableSetOf<String>()
+        val now = System.currentTimeMillis()
 
         for (event in events) {
-            val key = AlarmScheduler.alarmKey(event)
-            validKeys.add(key)
             val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
-            if (triggerMs > System.currentTimeMillis() && !prefs.isAlarmScheduled(key)) {
+            if (triggerMs > now) {
+                Log.i("CalAlarm", "PollReceiver scheduling alarm for '${event.summary}' trigger=${triggerMs - now}ms from now")
                 AlarmScheduler.scheduleEventAlarm(context, event, triggerMs)
-                prefs.addScheduledAlarm(key)
             }
         }
 
-        prefs.retainScheduledAlarms(validKeys)
         prefs.lastPollTime = System.currentTimeMillis()
 
         AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
