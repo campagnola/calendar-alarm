@@ -1,12 +1,10 @@
 package com.example.calendaralarm
 
 import android.Manifest
-import android.app.AlarmManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -29,6 +27,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private val timeFmt = DateTimeFormatter.ofPattern("h:mm a")
 
+    private var lastLoadMs = 0L
+    private var lastLoadDate: LocalDate? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -36,13 +37,18 @@ class MainActivity : AppCompatActivity() {
         prefs = Prefs(this)
 
         NotificationHelper.createChannels(this)
-        requestPermissionsIfNeeded()
+        requestNotificationPermissionIfNeeded()
         loadSchedule()
     }
 
     override fun onResume() {
         super.onResume()
-        loadSchedule()
+        val today = LocalDate.now()
+        val elapsed = System.currentTimeMillis() - lastLoadMs
+        val pollMs = prefs.pollIntervalMinutes * 60_000L
+        if (lastLoadDate != today || elapsed >= pollMs) {
+            loadSchedule()
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -63,6 +69,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSchedule() {
+        lastLoadMs = System.currentTimeMillis()
+        lastLoadDate = LocalDate.now()
+
         val url = prefs.icsUrl
         if (url.isEmpty()) {
             showMessage("Tap the gear icon to enter your ICS URL.")
@@ -112,15 +121,10 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.visibility = View.VISIBLE
     }
 
-    private fun requestPermissionsIfNeeded() {
+    private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val am = getSystemService(AlarmManager::class.java)
-            if (!am.canScheduleExactAlarms())
-                startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM))
         }
     }
 }
