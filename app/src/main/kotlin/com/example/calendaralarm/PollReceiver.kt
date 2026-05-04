@@ -25,7 +25,7 @@ class PollReceiver : BroadcastReceiver() {
         val prefs = Prefs(context)
 
         Log.i("CalAlarm", "PollReceiver: polling")
-        val ics = IcsFetcher.fetch(context) ?: run {
+        val ics = IcsFetcher.fetch(context, forceDownload = true) ?: run {
             Log.w("CalAlarm", "PollReceiver: no ICS available (no cache, no network)")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return

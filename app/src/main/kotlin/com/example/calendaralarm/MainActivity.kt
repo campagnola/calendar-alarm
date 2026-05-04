@@ -63,13 +63,13 @@ class MainActivity : AppCompatActivity() {
             true
         }
         R.id.action_refresh -> {
-            loadSchedule()
+            loadSchedule(forceDownload = true)
             true
         }
         else -> super.onOptionsItemSelected(item)
     }
 
-    private fun loadSchedule() {
+    private fun loadSchedule(forceDownload: Boolean = false) {
         lastLoadMs = System.currentTimeMillis()
         lastLoadDate = LocalDate.now()
 
@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val todayEvents = withContext(Dispatchers.IO) {
-                val ics = IcsFetcher.fetch(this@MainActivity) ?: return@withContext null
+                val ics = IcsFetcher.fetch(this@MainActivity, forceDownload) ?: return@withContext null
 
                 val now      = LocalDateTime.now()
                 val today    = now.toLocalDate()
