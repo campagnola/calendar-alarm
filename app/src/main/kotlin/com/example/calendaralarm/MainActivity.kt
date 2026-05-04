@@ -19,8 +19,6 @@ import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -87,24 +85,16 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val todayEvents = withContext(Dispatchers.IO) {
-                runCatching {
-                    val conn = URL(url).openConnection() as HttpURLConnection
-                    conn.connectTimeout = 10_000
-                    conn.readTimeout = 10_000
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    conn.disconnect()
+                val ics = IcsFetcher.fetch(this@MainActivity) ?: return@withContext null
 
-                    val now   = LocalDateTime.now()
-                    val today = now.toLocalDate()
-                    val dayStart = today.atStartOfDay()
+                val now      = LocalDateTime.now()
+                val today    = now.toLocalDate()
+                val dayStart = today.atStartOfDay()
 
-                    // Parse from start of today so past events appear; extend window slightly
-                    // past midnight to catch alarms for events that start early tomorrow.
-                    val allEvents = IcsParser.parse(text, dayStart, dayStart.plusHours(25))
-                    scheduleAlarms(allEvents)
+                val allEvents = IcsParser.parse(ics.text, dayStart, dayStart.plusHours(25))
+                scheduleAlarms(allEvents)
 
-                    allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
-                }.getOrNull()
+                allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
             }
 
             when {

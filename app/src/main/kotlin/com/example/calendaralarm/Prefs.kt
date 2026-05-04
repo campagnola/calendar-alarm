@@ -25,6 +25,10 @@ class Prefs(context: Context) {
         get() = p.getLong("last_poll", 0L)
         set(v) = p.edit().putLong("last_poll", v).apply()
 
+    var lastAlarmScheduleTs: Long
+        get() = p.getLong("last_alarm_schedule_ts", 0L)
+        set(v) = p.edit().putLong("last_alarm_schedule_ts", v).apply()
+
     var icsEtag: String
         get() = p.getString("ics_etag", "") ?: ""
         set(v) = p.edit().putString("ics_etag", v).apply()
