@@ -19,6 +19,8 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
@@ -83,28 +85,51 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            val events = withContext(Dispatchers.IO) {
+            val todayEvents = withContext(Dispatchers.IO) {
                 runCatching {
                     val conn = URL(url).openConnection() as HttpURLConnection
                     conn.connectTimeout = 10_000
                     conn.readTimeout = 10_000
                     val text = conn.inputStream.bufferedReader().use { it.readText() }
                     conn.disconnect()
-                    val today = LocalDate.now()
-                    IcsParser.parse(text, today.atStartOfDay(), today.atTime(23, 59, 59))
-                        .sortedBy { it.start }
+
+                    val now = LocalDateTime.now()
+                    val today = now.toLocalDate()
+
+                    // Parse a 25-hour window so we can schedule alarms for events
+                    // starting later today or early tomorrow, then filter to today for display.
+                    val upcoming = IcsParser.parse(text, now, now.plusHours(25))
+                    scheduleAlarms(upcoming)
+
+                    upcoming.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
                 }.getOrNull()
             }
 
             when {
-                events == null -> showMessage("Failed to load calendar. Check URL and network.")
-                events.isEmpty() -> showMessage("No events today.")
+                todayEvents == null  -> showMessage("Failed to load calendar. Check URL and network.")
+                todayEvents.isEmpty() -> showMessage("No events today.")
                 else -> {
                     binding.statusText.visibility = View.GONE
-                    for (event in events) addEventCard(event)
+                    for (event in todayEvents) addEventCard(event)
                 }
             }
         }
+    }
+
+    private fun scheduleAlarms(events: List<CalendarEvent>) {
+        val advanceMs = prefs.advanceMinutes * 60_000L
+        val validKeys = mutableSetOf<String>()
+        for (event in events) {
+            val key = AlarmScheduler.alarmKey(event)
+            validKeys.add(key)
+            val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val triggerMs = startMs - advanceMs
+            if (triggerMs > System.currentTimeMillis() && !prefs.isAlarmScheduled(key)) {
+                AlarmScheduler.scheduleEventAlarm(this, event, triggerMs)
+                prefs.addScheduledAlarm(key)
+            }
+        }
+        prefs.retainScheduledAlarms(validKeys)
     }
 
     private fun addEventCard(event: CalendarEvent) {

@@ -2,6 +2,7 @@ package com.example.calendaralarm
 
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.*
 
 class AlarmService : Service() {
@@ -14,7 +15,12 @@ class AlarmService : Service() {
         val uid = intent?.getStringExtra("uid") ?: ""
 
         val notification = NotificationHelper.buildAlarmNotification(this, summary, startTime, uid)
-        startForeground(NotificationHelper.ALARM_NOTIF_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NotificationHelper.ALARM_NOTIF_ID, notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NotificationHelper.ALARM_NOTIF_ID, notification)
+        }
 
         startVibration()
         return START_NOT_STICKY

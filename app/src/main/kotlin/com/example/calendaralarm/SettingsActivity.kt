@@ -60,6 +60,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun needsExactAlarmPermission(): Boolean {
+        // API 33+: USE_EXACT_ALARM is auto-granted, nothing to do
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return false
+        // API 31-32: SCHEDULE_EXACT_ALARM requires manual grant
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
         return !getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
     }
