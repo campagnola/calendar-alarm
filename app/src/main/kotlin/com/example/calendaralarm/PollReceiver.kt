@@ -13,38 +13,36 @@ class PollReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val result = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                poll(context)
-            } finally {
-                result.finish()
-            }
+            try { poll(context) } finally { result.finish() }
         }
     }
 
     private suspend fun poll(context: Context) {
         val prefs = Prefs(context)
+        Log.i("CalAlarm", "PollReceiver: polling ${prefs.icsSources.size} source(s)")
 
-        Log.i("CalAlarm", "PollReceiver: polling")
-        val ics = IcsFetcher.fetch(context, forceDownload = true) ?: run {
-            Log.w("CalAlarm", "PollReceiver: no ICS available (no cache, no network)")
+        val sources = IcsFetcher.fetchAll(context, forceDownload = true)
+        if (sources.isEmpty()) {
+            Log.w("CalAlarm", "PollReceiver: no ICS data available")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return
         }
 
-        if (ics.cacheTimestamp <= prefs.lastAlarmScheduleTs) {
-            Log.i("CalAlarm", "PollReceiver: cache unchanged, skipping reschedule")
+        val maxCacheTs = sources.maxOf { it.cacheTimestamp }
+        if (maxCacheTs <= prefs.lastAlarmScheduleTs) {
+            Log.i("CalAlarm", "PollReceiver: all caches unchanged, skipping reschedule")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return
         }
 
-        val nowDt = LocalDateTime.now()
-        val events = IcsParser.parse(ics.text, nowDt, nowDt.plusHours(25))
+        val nowDt  = LocalDateTime.now()
+        val events = sources.flatMap { IcsParser.parse(it.text, nowDt, nowDt.plusHours(25)) }
 
         AlarmScheduler.cancelAllEventAlarms(context, prefs.activeAlarmCodes)
 
         val advanceMs = prefs.advanceMinutes * 60_000L
-        val now = System.currentTimeMillis()
-        val newCodes = mutableSetOf<Int>()
+        val now       = System.currentTimeMillis()
+        val newCodes  = mutableSetOf<Int>()
         for (event in events) {
             val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
@@ -54,9 +52,10 @@ class PollReceiver : BroadcastReceiver() {
                 newCodes.add(AlarmScheduler.alarmRequestCode(event))
             }
         }
-        prefs.activeAlarmCodes = newCodes
-        prefs.lastAlarmScheduleTs = ics.cacheTimestamp
-        prefs.lastPollTime = System.currentTimeMillis()
+        prefs.activeAlarmCodes    = newCodes
+        prefs.lastAlarmScheduleTs = maxCacheTs
+        prefs.lastPollTime        = System.currentTimeMillis()
+
         AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
     }
 }

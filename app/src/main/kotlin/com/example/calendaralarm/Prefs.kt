@@ -1,13 +1,24 @@
 package com.example.calendaralarm
 
 import android.content.Context
+import java.security.MessageDigest
 
 class Prefs(context: Context) {
     private val p = context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE)
 
-    var icsUrl: String
-        get() = p.getString("ics_url", "") ?: ""
-        set(v) = p.edit().putString("ics_url", v).apply()
+    // ── Calendar sources ──────────────────────────────────────────────────────
+
+    var icsSources: List<String>
+        get() {
+            val stored = p.getString("ics_sources", null)
+            if (stored != null) return stored.split('\n').filter { it.isNotEmpty() }
+            // Migrate from the legacy single-URL field.
+            val legacy = p.getString("ics_url", "") ?: ""
+            return if (legacy.isNotEmpty()) listOf(legacy) else emptyList()
+        }
+        set(v) = p.edit().putString("ics_sources", v.joinToString("\n")).apply()
+
+    // ── Alarm / poll config ───────────────────────────────────────────────────
 
     var advanceMinutes: Int
         get() = p.getInt("advance_min", 5)
@@ -29,23 +40,37 @@ class Prefs(context: Context) {
         get() = p.getLong("last_alarm_schedule_ts", 0L)
         set(v) = p.edit().putLong("last_alarm_schedule_ts", v).apply()
 
-    var icsEtag: String
-        get() = p.getString("ics_etag", "") ?: ""
-        set(v) = p.edit().putString("ics_etag", v).apply()
-
-    var icsLastModified: String
-        get() = p.getString("ics_last_modified", "") ?: ""
-        set(v) = p.edit().putString("ics_last_modified", v).apply()
-
-    var icsContentHash: String
-        get() = p.getString("ics_content_hash", "") ?: ""
-        set(v) = p.edit().putString("ics_content_hash", v).apply()
-
-    fun clearIcsCache() {
-        p.edit().remove("ics_etag").remove("ics_last_modified").remove("ics_content_hash").apply()
-    }
-
     var activeAlarmCodes: Set<Int>
-        get() = (p.getStringSet("active_alarm_codes", emptySet()) ?: emptySet()).mapNotNull { it.toIntOrNull() }.toSet()
+        get() = (p.getStringSet("active_alarm_codes", emptySet()) ?: emptySet())
+                    .mapNotNull { it.toIntOrNull() }.toSet()
         set(v) = p.edit().putStringSet("active_alarm_codes", v.map { it.toString() }.toSet()).apply()
+
+    // ── Per-URL metadata (keyed by urlId = first 8 hex chars of MD5(url)) ────
+
+    fun urlId(url: String): String =
+        MessageDigest.getInstance("MD5").digest(url.toByteArray())
+            .joinToString("") { "%02x".format(it) }.take(8)
+
+    fun icsEtag(id: String): String             = p.getString("etag_$id", "") ?: ""
+    fun setIcsEtag(id: String, v: String)       = p.edit().putString("etag_$id", v).apply()
+
+    fun icsLastModified(id: String): String     = p.getString("lmod_$id", "") ?: ""
+    fun setIcsLastModified(id: String, v: String) = p.edit().putString("lmod_$id", v).apply()
+
+    fun icsContentHash(id: String): String      = p.getString("hash_$id", "") ?: ""
+    fun setIcsContentHash(id: String, v: String) = p.edit().putString("hash_$id", v).apply()
+
+    fun icsLastFetchMs(id: String): Long        = p.getLong("fetch_ms_$id", 0L)
+    fun setIcsLastFetchMs(id: String, v: Long)  = p.edit().putLong("fetch_ms_$id", v).apply()
+
+    // "OK" on success, or an error message.
+    fun icsLastFetchStatus(id: String): String  = p.getString("fetch_ok_$id", "") ?: ""
+    fun setIcsLastFetchStatus(id: String, v: String) = p.edit().putString("fetch_ok_$id", v).apply()
+
+    fun clearSourceCache(id: String) {
+        p.edit()
+            .remove("etag_$id").remove("lmod_$id").remove("hash_$id")
+            .remove("fetch_ms_$id").remove("fetch_ok_$id")
+            .apply()
+    }
 }

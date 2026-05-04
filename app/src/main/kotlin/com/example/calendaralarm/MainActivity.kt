@@ -85,13 +85,14 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             val todayEvents = withContext(Dispatchers.IO) {
-                val ics = IcsFetcher.fetch(this@MainActivity, forceDownload) ?: return@withContext null
+                val sources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
+                if (sources.isEmpty()) return@withContext null
 
                 val now      = LocalDateTime.now()
                 val today    = now.toLocalDate()
                 val dayStart = today.atStartOfDay()
 
-                val allEvents = IcsParser.parse(ics.text, dayStart, dayStart.plusHours(25))
+                val allEvents = sources.flatMap { IcsParser.parse(it.text, dayStart, dayStart.plusHours(25)) }
                 scheduleAlarms(allEvents)
 
                 allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
