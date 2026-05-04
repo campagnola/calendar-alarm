@@ -73,9 +73,8 @@ class MainActivity : AppCompatActivity() {
         lastLoadMs = System.currentTimeMillis()
         lastLoadDate = LocalDate.now()
 
-        val url = prefs.icsUrl
-        if (url.isEmpty()) {
-            showMessage("Tap the gear icon to enter your ICS URL.")
+        if (prefs.icsSources.isEmpty()) {
+            showMessage("Tap the gear icon to add a calendar source.")
             return
         }
 
