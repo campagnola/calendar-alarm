@@ -111,16 +111,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun scheduleAlarms(events: List<CalendarEvent>) {
+        AlarmScheduler.cancelAllEventAlarms(this, prefs.activeAlarmCodes)
+
         val advanceMs = prefs.advanceMinutes * 60_000L
         val now = System.currentTimeMillis()
+        val newCodes = mutableSetOf<Int>()
         for (event in events) {
             val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
             if (triggerMs > now) {
                 Log.i("CalAlarm", "MainActivity scheduling alarm for '${event.summary}' trigger=${triggerMs - now}ms from now")
                 AlarmScheduler.scheduleEventAlarm(this, event, triggerMs)
+                newCodes.add(AlarmScheduler.alarmRequestCode(event))
             }
         }
+        prefs.activeAlarmCodes = newCodes
     }
 
     private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter, now: LocalDateTime) {

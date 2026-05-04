@@ -40,17 +40,21 @@ class PollReceiver : BroadcastReceiver() {
         val nowDt = LocalDateTime.now()
         val events = IcsParser.parse(ics.text, nowDt, nowDt.plusHours(25))
 
+        AlarmScheduler.cancelAllEventAlarms(context, prefs.activeAlarmCodes)
+
         val advanceMs = prefs.advanceMinutes * 60_000L
         val now = System.currentTimeMillis()
+        val newCodes = mutableSetOf<Int>()
         for (event in events) {
             val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
             if (triggerMs > now) {
                 Log.i("CalAlarm", "PollReceiver: scheduling '${event.summary}' in ${(triggerMs - now) / 1000}s")
                 AlarmScheduler.scheduleEventAlarm(context, event, triggerMs)
+                newCodes.add(AlarmScheduler.alarmRequestCode(event))
             }
         }
-
+        prefs.activeAlarmCodes = newCodes
         prefs.lastAlarmScheduleTs = ics.cacheTimestamp
         prefs.lastPollTime = System.currentTimeMillis()
         AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)

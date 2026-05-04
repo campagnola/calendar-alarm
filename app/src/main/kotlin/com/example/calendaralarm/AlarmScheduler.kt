@@ -60,6 +60,19 @@ object AlarmScheduler {
         } catch (_: SecurityException) {}
     }
 
+    fun cancelAllEventAlarms(context: Context, codes: Set<Int>) {
+        val am = context.getSystemService(AlarmManager::class.java)
+        for (code in codes) {
+            val pi = PendingIntent.getBroadcast(
+                context, code,
+                Intent(context, AlarmReceiver::class.java),
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            ) ?: continue
+            am.cancel(pi)
+            pi.cancel()
+        }
+    }
+
     fun alarmRequestCode(event: CalendarEvent): Int {
         val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
         return (event.uid + startMs).hashCode()

@@ -41,4 +41,7 @@ class Prefs(context: Context) {
         p.edit().remove("ics_etag").remove("ics_last_modified").apply()
     }
 
+    var activeAlarmCodes: Set<Int>
+        get() = (p.getStringSet("active_alarm_codes", emptySet()) ?: emptySet()).mapNotNull { it.toIntOrNull() }.toSet()
+        set(v) = p.edit().putStringSet("active_alarm_codes", v.map { it.toString() }.toSet()).apply()
 }
