@@ -27,12 +27,14 @@ class PollReceiver : BroadcastReceiver() {
         val prefs = Prefs(context)
         val url = prefs.icsUrl.ifEmpty { return }
 
+        Log.i("CalAlarm", "PollReceiver: polling ICS")
         val (icsText, newEtag, newLastModified) = fetchUrl(url, prefs.icsEtag, prefs.icsLastModified)
         if (icsText == null) {
-            // 304 Not Modified or network error — either way, nothing new to schedule
+            Log.i("CalAlarm", "PollReceiver: no changes (304 or network error), skipping parse")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return
         }
+        Log.i("CalAlarm", "PollReceiver: fetched updated ICS (${icsText.length} bytes)")
         if (newEtag.isNotEmpty())        prefs.icsEtag = newEtag
         if (newLastModified.isNotEmpty()) prefs.icsLastModified = newLastModified
 
@@ -68,8 +70,9 @@ class PollReceiver : BroadcastReceiver() {
 
             val code = conn.responseCode
             if (code == HttpURLConnection.HTTP_NOT_MODIFIED) {
+                Log.i("CalAlarm", "PollReceiver: server returned 304 Not Modified")
                 conn.disconnect()
-                return FetchResult(null, etag, lastModified) // unchanged
+                return FetchResult(null, etag, lastModified)
             }
 
             val text = conn.inputStream.bufferedReader().use { it.readText() }
@@ -77,7 +80,8 @@ class PollReceiver : BroadcastReceiver() {
             val newLastModified = conn.getHeaderField("Last-Modified") ?: ""
             conn.disconnect()
             FetchResult(text, newEtag, newLastModified)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("CalAlarm", "PollReceiver: network error: ${e.message}")
             FetchResult(null, etag, lastModified)
         }
     }
