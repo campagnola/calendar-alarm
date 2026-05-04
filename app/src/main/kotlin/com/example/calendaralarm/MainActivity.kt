@@ -94,13 +94,16 @@ class MainActivity : AppCompatActivity() {
                     val text = conn.inputStream.bufferedReader().use { it.readText() }
                     conn.disconnect()
 
-                    val now = LocalDateTime.now()
+                    val now   = LocalDateTime.now()
                     val today = now.toLocalDate()
+                    val dayStart = today.atStartOfDay()
 
-                    val upcoming = IcsParser.parse(text, now, now.plusHours(25))
-                    scheduleAlarms(upcoming)
+                    // Parse from start of today so past events appear; extend window slightly
+                    // past midnight to catch alarms for events that start early tomorrow.
+                    val allEvents = IcsParser.parse(text, dayStart, dayStart.plusHours(25))
+                    scheduleAlarms(allEvents)
 
-                    upcoming.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
+                    allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
                 }.getOrNull()
             }
 
@@ -110,7 +113,8 @@ class MainActivity : AppCompatActivity() {
                 else -> {
                     binding.statusText.visibility = View.GONE
                     val fmt = timeFormatter(this@MainActivity)
-                    for (event in todayEvents) addEventCard(event, fmt)
+                    val now = LocalDateTime.now()
+                    for (event in todayEvents) addEventCard(event, fmt, now)
                 }
             }
         }
@@ -129,8 +133,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter) {
+    private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter, now: LocalDateTime) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
+
+        val bg = when {
+            event.end   <= now -> R.drawable.event_card_bg_past
+            event.start <= now -> R.drawable.event_card_bg_active
+            else               -> R.drawable.event_card_bg
+        }
+        view.setBackgroundResource(bg)
+
         view.findViewById<TextView>(R.id.eventTitle).text = event.summary
         view.findViewById<TextView>(R.id.eventTime).text = if (event.isAllDay) "All day"
             else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
