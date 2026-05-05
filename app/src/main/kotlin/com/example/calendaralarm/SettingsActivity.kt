@@ -40,6 +40,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.advanceInput.setText(prefs.advanceMinutes.toString())
         binding.pollIntervalInput.setText(prefs.pollIntervalMinutes.toString())
         binding.snoozeInput.setText(prefs.snoozeMinutes.toString())
+        binding.showTomorrowInput.setText(minutesToHhmm(prefs.showTomorrowAtMinutes))
 
         binding.saveButton.setOnClickListener { save() }
     }
@@ -104,10 +105,24 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    private fun minutesToHhmm(minutes: Int) = "%02d:%02d".format(minutes / 60, minutes % 60)
+
+    private fun parseHhmm(s: String): Int? {
+        val parts = s.trim().split(':')
+        if (parts.size != 2) return null
+        val h = parts[0].toIntOrNull() ?: return null
+        val m = parts[1].toIntOrNull() ?: return null
+        if (h !in 0..23 || m !in 0..59) return null
+        return h * 60 + m
+    }
+
     private fun save() {
         prefs.advanceMinutes      = binding.advanceInput.text.toString().toIntOrNull() ?: 5
         prefs.pollIntervalMinutes = binding.pollIntervalInput.text.toString().toIntOrNull() ?: 15
         prefs.snoozeMinutes       = binding.snoozeInput.text.toString().toIntOrNull() ?: 4
+        val showTomorrow = parseHhmm(binding.showTomorrowInput.text.toString())
+        if (showTomorrow != null) prefs.showTomorrowAtMinutes = showTomorrow
+        else Toast.makeText(this, "Invalid time for \"Show tomorrow at\" — use HH:MM", Toast.LENGTH_SHORT).show()
         AlarmScheduler.schedulePoll(this, 0L)
 
         when {

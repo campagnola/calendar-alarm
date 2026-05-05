@@ -33,6 +33,11 @@ class Prefs(context: Context) {
         get() = p.getInt("snooze_min", 4)
         set(v) = p.edit().putInt("snooze_min", v).apply()
 
+    // Minutes since midnight after which the main view switches to tomorrow (default 20:00 = 1200).
+    var showTomorrowAtMinutes: Int
+        get() = p.getInt("show_tomorrow_min", 20 * 60)
+        set(v) = p.edit().putInt("show_tomorrow_min", v).apply()
+
     var lastPollTime: Long
         get() = p.getLong("last_poll", 0L)
         set(v) = p.edit().putLong("last_poll", v).apply()

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -29,8 +30,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
 
-    private var lastLoadMs = 0L
+    private var lastLoadMs   = 0L
     private var lastLoadDate: LocalDate? = null
+    private var lastVisibleDay: LocalDate? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,10 +47,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val today = LocalDate.now()
+        val today   = LocalDate.now()
+        val visDay  = visibleDay(LocalDateTime.now())
         val elapsed = System.currentTimeMillis() - lastLoadMs
-        val pollMs = prefs.pollIntervalMinutes * 60_000L
-        if (lastLoadDate != today || elapsed >= pollMs) {
+        val pollMs  = prefs.pollIntervalMinutes * 60_000L
+        if (lastLoadDate != today || lastVisibleDay != visDay || elapsed >= pollMs) {
             loadSchedule()
         }
     }
@@ -59,20 +62,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_settings -> {
-            startActivity(Intent(this, SettingsActivity::class.java))
-            true
-        }
-        R.id.action_refresh -> {
-            loadSchedule(forceDownload = true)
-            true
-        }
+        R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
+        R.id.action_refresh  -> { loadSchedule(forceDownload = true); true }
         else -> super.onOptionsItemSelected(item)
     }
 
+    // ── Visible-day logic ─────────────────────────────────────────────────────
+
+    private fun visibleDay(now: LocalDateTime = LocalDateTime.now()): LocalDate {
+        val minuteOfDay = now.hour * 60 + now.minute
+        return if (minuteOfDay >= prefs.showTomorrowAtMinutes) now.toLocalDate().plusDays(1)
+               else now.toLocalDate()
+    }
+
+    // ── Schedule loading ──────────────────────────────────────────────────────
+
     private fun loadSchedule(forceDownload: Boolean = false) {
-        lastLoadMs   = System.currentTimeMillis()
-        lastLoadDate = LocalDate.now()
+        val now    = LocalDateTime.now()
+        val today  = now.toLocalDate()
+        val visDay = visibleDay(now)
+
+        lastLoadMs     = System.currentTimeMillis()
+        lastLoadDate   = today
+        lastVisibleDay = visDay
 
         if (prefs.icsSources.isEmpty()) {
             showMessage("Tap the gear icon to add a calendar source.")
@@ -84,18 +96,19 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            // Returns list of (event, alarmEnabled) for today, or null on total failure.
-            val todayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
+            // Returns events for the visible window paired with their alarm-enabled flag,
+            // or null on total fetch failure.
+            val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
                 val sources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
                 if (sources.isEmpty()) return@withContext null
 
-                val now      = LocalDateTime.now()
-                val today    = now.toLocalDate()
-                val dayStart = today.atStartOfDay()
+                val visDayStart = visDay.atStartOfDay()
+                val windowStart = if (visDay == today) visDayStart else now
+                val windowEnd   = visDayStart.plusHours(25)
 
                 val parsedPerSource = sources.map { source ->
                     val id = prefs.urlId(source.url)
-                    source to IcsParser.parse(source.text, dayStart, dayStart.plusHours(25), id)
+                    source to IcsParser.parse(source.text, windowStart, windowEnd, id)
                 }
                 for ((source, sourceEvents) in parsedPerSource) {
                     prefs.setIcsLastFetchEventCount(
@@ -117,30 +130,45 @@ class MainActivity : AppCompatActivity() {
                 scheduleAlarms(allEvents, eventFlags)
 
                 allEvents
-                    .filter { it.start.toLocalDate() == today && eventFlags[it]?.visible != false }
+                    .filter { it.start >= windowStart
+                           && it.start.toLocalDate() <= visDay
+                           && eventFlags[it]?.visible != false }
                     .sortedBy { it.start }
                     .map { it to (eventFlags[it]?.alarmEnabled != false) }
             }
 
             when {
-                todayEvents == null   -> showMessage("Failed to load calendar. Check URL and network.")
-                todayEvents.isEmpty() -> showMessage("No events today.")
+                displayEvents == null    -> showMessage("Failed to load calendar. Check URL and network.")
+                displayEvents.isEmpty()  ->
+                    showMessage(if (visDay == today) "No events today." else "No events tomorrow.")
                 else -> {
                     binding.statusText.visibility = View.GONE
-                    val fmt = timeFormatter(this@MainActivity)
-                    val now = LocalDateTime.now()
-                    for ((event, alarmEnabled) in todayEvents) addEventCard(event, fmt, now, alarmEnabled)
+                    val fmt        = timeFormatter(this@MainActivity)
+                    val displayNow = LocalDateTime.now()
+                    val showingTomorrow = visDay != today
+                    var headerInserted  = false
+
+                    for ((event, alarmEnabled) in displayEvents) {
+                        // Insert "tomorrow" divider before the first tomorrow-day event
+                        if (showingTomorrow && !headerInserted
+                                && event.start.toLocalDate() == visDay) {
+                            addDayHeader("------ tomorrow ------")
+                            headerInserted = true
+                        }
+                        addEventCard(event, fmt, displayNow, alarmEnabled)
+                    }
                 }
             }
         }
     }
 
+    // ── Alarm scheduling ──────────────────────────────────────────────────────
+
     private fun scheduleAlarms(events: List<CalendarEvent>,
                                flags: Map<CalendarEvent, FilterEngine.EventFlags>) {
         AlarmScheduler.cancelAllEventAlarms(this, prefs.activeAlarmCodes)
 
-        val defaultAdvanceMs = prefs.advanceMinutes * 60_000L
-        val now = System.currentTimeMillis()
+        val now      = System.currentTimeMillis()
         val newCodes = mutableSetOf<Int>()
         for (event in events) {
             val ef = flags[event] ?: FilterEngine.EventFlags()
@@ -155,6 +183,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
         prefs.activeAlarmCodes = newCodes
+    }
+
+    // ── View helpers ──────────────────────────────────────────────────────────
+
+    private fun addDayHeader(text: String) {
+        val tv = TextView(this)
+        tv.text = text
+        tv.gravity = Gravity.CENTER
+        tv.setTextColor(0xFF888888.toInt())
+        tv.textSize = 12f
+        val pad = (10 * resources.displayMetrics.density).toInt()
+        tv.setPadding(0, pad, 0, pad)
+        binding.scheduleContainer.addView(tv)
     }
 
     private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter,
