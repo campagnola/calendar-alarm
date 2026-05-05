@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
@@ -23,7 +22,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.ZoneId
 
 class MainActivity : AppCompatActivity() {
 
@@ -166,23 +164,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun scheduleAlarms(events: List<CalendarEvent>,
                                flags: Map<CalendarEvent, FilterEngine.EventFlags>) {
-        AlarmScheduler.cancelAllEventAlarms(this, prefs.activeAlarmCodes)
-
-        val now      = System.currentTimeMillis()
-        val newCodes = mutableSetOf<Int>()
-        for (event in events) {
-            val ef = flags[event] ?: FilterEngine.EventFlags()
-            if (!ef.alarmEnabled) continue
-            val advanceMs = (ef.advanceMinutes ?: prefs.advanceMinutes) * 60_000L
-            val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val triggerMs = startMs - advanceMs
-            if (triggerMs > now) {
-                Log.i("CalAlarm", "MainActivity scheduling alarm for '${event.summary}' trigger=${triggerMs - now}ms from now")
-                AlarmScheduler.scheduleEventAlarm(this, event, triggerMs)
-                newCodes.add(AlarmScheduler.alarmRequestCode(event))
-            }
-        }
-        prefs.activeAlarmCodes = newCodes
+        prefs.activeAlarmCodes = AlarmScheduler.scheduleAll(this, events, flags, prefs)
     }
 
     // ── View helpers ──────────────────────────────────────────────────────────

@@ -6,7 +6,6 @@ import android.content.Intent
 import android.util.Log
 import kotlinx.coroutines.*
 import java.time.LocalDateTime
-import java.time.ZoneId
 
 class PollReceiver : BroadcastReceiver() {
 
@@ -59,23 +58,7 @@ class PollReceiver : BroadcastReceiver() {
                              && FilterEngine.matches(it, filter.criteria) })
         }
 
-        AlarmScheduler.cancelAllEventAlarms(context, prefs.activeAlarmCodes)
-
-        val now      = System.currentTimeMillis()
-        val newCodes = mutableSetOf<Int>()
-        for (event in events) {
-            val ef = eventFlags[event] ?: FilterEngine.EventFlags()
-            if (!ef.alarmEnabled) continue
-            val advanceMs = (ef.advanceMinutes ?: prefs.advanceMinutes) * 60_000L
-            val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val triggerMs = startMs - advanceMs
-            if (triggerMs > now) {
-                Log.i("CalAlarm", "PollReceiver: scheduling '${event.summary}' in ${(triggerMs - now) / 1000}s")
-                AlarmScheduler.scheduleEventAlarm(context, event, triggerMs)
-                newCodes.add(AlarmScheduler.alarmRequestCode(event))
-            }
-        }
-        prefs.activeAlarmCodes    = newCodes
+        prefs.activeAlarmCodes    = AlarmScheduler.scheduleAll(context, events, eventFlags, prefs)
         prefs.lastAlarmScheduleTs = maxCacheTs
         prefs.lastPollTime        = System.currentTimeMillis()
 

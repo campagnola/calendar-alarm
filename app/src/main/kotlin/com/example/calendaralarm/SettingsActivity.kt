@@ -41,6 +41,9 @@ class SettingsActivity : AppCompatActivity() {
         binding.pollIntervalInput.setText(prefs.pollIntervalMinutes.toString())
         binding.snoozeInput.setText(prefs.snoozeMinutes.toString())
         binding.showTomorrowInput.setText(minutesToHhmm(prefs.showTomorrowAtMinutes))
+        binding.quietStartInput.setText(minutesToHhmm(prefs.quietHoursStartMinutes))
+        binding.quietEndInput.setText(minutesToHhmm(prefs.quietHoursEndMinutes))
+        binding.quietHoursAlarmCheckbox.isChecked = prefs.quietHoursAlarmEnabled
 
         binding.saveButton.setOnClickListener { save() }
     }
@@ -123,6 +126,13 @@ class SettingsActivity : AppCompatActivity() {
         val showTomorrow = parseHhmm(binding.showTomorrowInput.text.toString())
         if (showTomorrow != null) prefs.showTomorrowAtMinutes = showTomorrow
         else Toast.makeText(this, "Invalid time for \"Show tomorrow at\" — use HH:MM", Toast.LENGTH_SHORT).show()
+        val quietStart = parseHhmm(binding.quietStartInput.text.toString())
+        if (quietStart != null) prefs.quietHoursStartMinutes = quietStart
+        else Toast.makeText(this, "Invalid time for \"Quiet hours start\" — use HH:MM", Toast.LENGTH_SHORT).show()
+        val quietEnd = parseHhmm(binding.quietEndInput.text.toString())
+        if (quietEnd != null) prefs.quietHoursEndMinutes = quietEnd
+        else Toast.makeText(this, "Invalid time for \"Quiet hours end\" — use HH:MM", Toast.LENGTH_SHORT).show()
+        prefs.quietHoursAlarmEnabled = binding.quietHoursAlarmCheckbox.isChecked
         AlarmScheduler.schedulePoll(this, 0L)
 
         when {

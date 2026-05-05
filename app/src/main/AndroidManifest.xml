@@ -56,6 +56,7 @@
         <receiver android:name=".PollReceiver" android:exported="false" />
         <receiver android:name=".AlarmReceiver" android:exported="false" />
         <receiver android:name=".ActionReceiver" android:exported="false" />
+        <receiver android:name=".QuietHoursReceiver" android:exported="false" />
 
         <receiver
             android:name=".BootReceiver"

@@ -10,7 +10,9 @@ import androidx.core.app.NotificationCompat
 
 object NotificationHelper {
     const val CHANNEL_ALARM = "alarm"
+    const val CHANNEL_REMINDER = "reminder"
     const val ALARM_NOTIF_ID = 42
+    const val QUIET_HOURS_NOTIF_ID = 43
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -20,6 +22,29 @@ object NotificationHelper {
                 enableVibration(false)
             }
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_REMINDER, "Quiet Hours Reminder", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+    }
+
+    fun showQuietHoursNotification(context: Context, count: Int) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val pi = PendingIntent.getActivity(
+            context, 0,
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val text = "$count ${if (count == 1) "event" else "events"} scheduled during quiet hours"
+        val notif = androidx.core.app.NotificationCompat.Builder(context, CHANNEL_REMINDER)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Upcoming events")
+            .setContentText(text)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(QUIET_HOURS_NOTIF_ID, notif)
     }
 
     fun buildAlarmNotification(context: Context, summary: String, startTime: String,

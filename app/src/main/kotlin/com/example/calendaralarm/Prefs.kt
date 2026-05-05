@@ -38,6 +38,20 @@ class Prefs(context: Context) {
         get() = p.getInt("show_tomorrow_min", 20 * 60)
         set(v) = p.edit().putInt("show_tomorrow_min", v).apply()
 
+    // Quiet hours: start/end as minutes since midnight (default 22:00–07:00).
+    var quietHoursStartMinutes: Int
+        get() = p.getInt("quiet_start_min", 22 * 60)
+        set(v) = p.edit().putInt("quiet_start_min", v).apply()
+
+    var quietHoursEndMinutes: Int
+        get() = p.getInt("quiet_end_min", 7 * 60)
+        set(v) = p.edit().putInt("quiet_end_min", v).apply()
+
+    // Whether to fire a consolidated notification at the start of quiet hours.
+    var quietHoursAlarmEnabled: Boolean
+        get() = p.getBoolean("quiet_alarm_enabled", false)
+        set(v) = p.edit().putBoolean("quiet_alarm_enabled", v).apply()
+
     var lastPollTime: Long
         get() = p.getLong("last_poll", 0L)
         set(v) = p.edit().putLong("last_poll", v).apply()
