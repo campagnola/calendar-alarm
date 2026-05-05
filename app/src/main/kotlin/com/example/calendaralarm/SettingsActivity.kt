@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.example.calendaralarm.databinding.ActivitySettingsBinding
+import com.example.calendaralarm.databinding.ItemFilterRowBinding
 import com.example.calendaralarm.databinding.ItemSourceRowBinding
 
 class SettingsActivity : AppCompatActivity() {
@@ -32,6 +33,10 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, SourceSettingsActivity::class.java))
         }
 
+        binding.addFilterButton.setOnClickListener {
+            startActivity(Intent(this, FilterSettingsActivity::class.java))
+        }
+
         binding.advanceInput.setText(prefs.advanceMinutes.toString())
         binding.pollIntervalInput.setText(prefs.pollIntervalMinutes.toString())
         binding.snoozeInput.setText(prefs.snoozeMinutes.toString())
@@ -42,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         populateSources()
+        populateFilters()
     }
 
     private fun populateSources() {
@@ -59,6 +65,31 @@ class SettingsActivity : AppCompatActivity() {
             }
             binding.urlSourcesContainer.addView(row.root)
         }
+    }
+
+    private fun populateFilters() {
+        binding.filterContainer.removeAllViews()
+        for (filter in prefs.eventFilters) {
+            val row = ItemFilterRowBinding.inflate(LayoutInflater.from(this),
+                                                  binding.filterContainer, false)
+            row.filterNameText.text = filter.name.ifEmpty { "Unnamed filter" }
+            row.filterStatusText.text = filterBriefStatus(filter)
+            row.root.setOnClickListener {
+                startActivity(Intent(this, FilterSettingsActivity::class.java)
+                    .putExtra(FilterSettingsActivity.EXTRA_FILTER_ID, filter.id))
+            }
+            binding.filterContainer.addView(row.root)
+        }
+    }
+
+    private fun filterBriefStatus(filter: EventFilter): String {
+        val nc = filter.criteria.size
+        val na = filter.actions.size
+        if (nc == 0 && na == 0) return "No criteria or actions"
+        return buildList {
+            if (nc > 0) add("$nc ${if (nc == 1) "criterion" else "criteria"}")
+            if (na > 0) add("$na ${if (na == 1) "action" else "actions"}")
+        }.joinToString(" · ")
     }
 
     private fun briefStatus(id: String): String {

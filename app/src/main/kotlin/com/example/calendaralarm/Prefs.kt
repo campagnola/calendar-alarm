@@ -1,6 +1,7 @@
 package com.example.calendaralarm
 
 import android.content.Context
+import org.json.JSONObject
 import java.security.MessageDigest
 
 class Prefs(context: Context) {
@@ -74,6 +75,53 @@ class Prefs(context: Context) {
     // User-visible name for this source (auto-populated from X-WR-CALNAME on first fetch).
     fun icsSourceName(id: String): String = p.getString("name_$id", "") ?: ""
     fun setIcsSourceName(id: String, v: String) = p.edit().putString("name_$id", v).apply()
+
+    // ── Event filters ─────────────────────────────────────────────────────────
+
+    var eventFilters: List<EventFilter>
+        get() {
+            val ids = p.getString("filter_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
+                ?: return emptyList()
+            return ids.mapNotNull { id ->
+                p.getString("filter_data_$id", null)?.let { json ->
+                    runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
+                }
+            }
+        }
+        set(v) {
+            val edit   = p.edit()
+            val oldIds = p.getString("filter_ids", null)?.split('\n')?.filter { it.isNotEmpty() } ?: emptyList()
+            val newIds = v.map { it.id }
+            edit.putString("filter_ids", newIds.joinToString("\n"))
+            v.forEach { edit.putString("filter_data_${it.id}", it.toJson().toString()) }
+            oldIds.filterNot { it in newIds }.forEach { edit.remove("filter_data_$it") }
+            edit.apply()
+        }
+
+    fun saveFilter(filter: EventFilter) {
+        val ids = p.getString("filter_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
+            ?.toMutableList() ?: mutableListOf()
+        if (filter.id !in ids) ids.add(filter.id)
+        p.edit()
+            .putString("filter_ids", ids.joinToString("\n"))
+            .putString("filter_data_${filter.id}", filter.toJson().toString())
+            .apply()
+    }
+
+    fun deleteFilter(filterId: String) {
+        val ids = p.getString("filter_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
+            ?.toMutableList() ?: mutableListOf()
+        ids.remove(filterId)
+        p.edit()
+            .putString("filter_ids", ids.joinToString("\n"))
+            .remove("filter_data_$filterId")
+            .apply()
+    }
+
+    fun getFilter(filterId: String): EventFilter? =
+        p.getString("filter_data_$filterId", null)?.let { json ->
+            runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
+        }
 
     fun clearSourceCache(id: String) {
         p.edit()
