@@ -45,9 +45,21 @@ class FilterSettingsActivity : AppCompatActivity() {
 
         supportActionBar?.title = if (isNew) "New filter" else "Edit filter"
 
-        val urls = prefs.icsSources
-        sourceIds   = urls.map { prefs.urlId(it) }
-        sourceNames = urls.map { url -> prefs.icsSourceName(prefs.urlId(url)).ifEmpty { url } }
+        val ids   = mutableListOf<String>()
+        val names = mutableListOf<String>()
+        for (url in prefs.icsSources) {
+            val id = prefs.urlId(url)
+            ids.add(id)
+            names.add(prefs.icsSourceName(id).ifEmpty { url })
+        }
+        if (prefs.localCalendarEnabled) {
+            for (calId in prefs.localCalendarIds) {
+                ids.add("local_$calId")
+                names.add(prefs.localCalendarName(calId).ifEmpty { "Calendar $calId" })
+            }
+        }
+        sourceIds   = ids
+        sourceNames = names
 
         val filter = filterId?.let { prefs.getFilter(it) }
         if (filter != null) {

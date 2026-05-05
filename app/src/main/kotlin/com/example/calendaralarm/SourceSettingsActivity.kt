@@ -213,6 +213,9 @@ class SourceSettingsActivity : AppCompatActivity() {
 
     private fun saveLocal() {
         val ids = selectedCalendarIds()
+        for (cal in deviceCalendars) {
+            if (cal.id in ids) prefs.setLocalCalendarName(cal.id, cal.name)
+        }
         prefs.localCalendarIds     = ids
         prefs.localCalendarEnabled = true
         AlarmScheduler.schedulePoll(this, 0L)

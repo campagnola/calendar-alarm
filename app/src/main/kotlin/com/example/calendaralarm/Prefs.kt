@@ -163,6 +163,10 @@ class Prefs(context: Context) {
     fun localCalendarEventCount(): Int = p.getInt("local_event_count", -1)
     fun setLocalCalendarEventCount(v: Int) = p.edit().putInt("local_event_count", v).apply()
 
+    // Display name for a specific device calendar (keyed by its CalendarContract ID).
+    fun localCalendarName(calId: Long): String = p.getString("local_cal_name_$calId", "") ?: ""
+    fun setLocalCalendarName(calId: Long, name: String) = p.edit().putString("local_cal_name_$calId", name).apply()
+
     fun clearSourceCache(id: String) {
         p.edit()
             .remove("etag_$id").remove("lmod_$id").remove("hash_$id")

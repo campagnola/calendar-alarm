@@ -94,6 +94,7 @@ object LocalCalendarReader {
                 val startDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(beginMs), zone)
                 val endDt   = LocalDateTime.ofInstant(Instant.ofEpochMilli(endMs2), zone)
 
+                val calId = cursor.getLong(cursor.getColumnIndex(CalendarContract.Instances.CALENDAR_ID))
                 events.add(CalendarEvent(
                     uid        = uid,
                     summary    = cursor.getString(titleCol) ?: "(No title)",
@@ -103,7 +104,7 @@ object LocalCalendarReader {
                     location   = cursor.getString(locationCol) ?: "",
                     organizer  = cursor.getString(orgCol)?.removePrefix("mailto:") ?: "",
                     meetingUrl = extractMeetingUrl(desc),
-                    sourceId   = "local"
+                    sourceId   = "local_$calId"
                 ))
             }
         }
