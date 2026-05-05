@@ -84,10 +84,15 @@ class SettingsActivity : AppCompatActivity() {
     private fun refreshStatus(statusView: TextView, id: String) {
         val ms     = prefs.icsLastFetchMs(id)
         val status = prefs.icsLastFetchStatus(id)
+        val count  = prefs.icsLastFetchEventCount(id)
         statusView.text = when {
-            ms == 0L          -> "Not yet fetched"
-            status == "OK"    -> "Fetched ${DateUtils.getRelativeTimeSpanString(ms)}"
-            else              -> "Error: $status"
+            ms == 0L       -> "Not yet checked"
+            status == "OK" -> {
+                val countStr = if (count >= 0) "$count event${if (count == 1) "" else "s"} today"
+                               else "OK"
+                "Checked ${DateUtils.getRelativeTimeSpanString(ms)} – $countStr"
+            }
+            else           -> "Checked ${DateUtils.getRelativeTimeSpanString(ms)} – Error: $status"
         }
     }
 

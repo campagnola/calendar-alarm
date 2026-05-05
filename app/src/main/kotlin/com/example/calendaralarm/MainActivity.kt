@@ -91,7 +91,16 @@ class MainActivity : AppCompatActivity() {
                 val today    = now.toLocalDate()
                 val dayStart = today.atStartOfDay()
 
-                val allEvents = sources.flatMap { IcsParser.parse(it.text, dayStart, dayStart.plusHours(25)) }
+                val parsedPerSource = sources.map { source ->
+                    source to IcsParser.parse(source.text, dayStart, dayStart.plusHours(25))
+                }
+                for ((source, sourceEvents) in parsedPerSource) {
+                    prefs.setIcsLastFetchEventCount(
+                        prefs.urlId(source.url),
+                        sourceEvents.count { it.start.toLocalDate() == today }
+                    )
+                }
+                val allEvents = parsedPerSource.flatMap { it.second }
                 scheduleAlarms(allEvents)
 
                 allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }

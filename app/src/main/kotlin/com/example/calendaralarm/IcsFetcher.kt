@@ -74,8 +74,9 @@ object IcsFetcher {
             }
         }
 
-        doGet(url, id, prefs, cacheFile)
+        val fetchOk = doGet(url, id, prefs, cacheFile)
 
+        if (!fetchOk) return null
         if (!cacheFile.exists()) return null
         return cacheFile.toResult(url)
     }
@@ -103,7 +104,8 @@ object IcsFetcher {
         }
     }
 
-    private fun doGet(url: String, id: String, prefs: Prefs, cacheFile: File) {
+    /** Returns true if usable ICS data is now in [cacheFile], false on any error. */
+    private fun doGet(url: String, id: String, prefs: Prefs, cacheFile: File): Boolean {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000
         conn.readTimeout    = 10_000
@@ -121,18 +123,29 @@ object IcsFetcher {
                     conn.disconnect()
                     prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
                     prefs.setIcsLastFetchStatus(id, "OK")
+                    return true
                 }
                 HttpURLConnection.HTTP_OK -> {
                     val etag         = conn.getHeaderField("ETag")          ?: "(none)"
                     val lastMod      = conn.getHeaderField("Last-Modified")  ?: "(none)"
                     val contentLen   = conn.getHeaderField("Content-Length") ?: "(none)"
+                    val contentType  = conn.getHeaderField("Content-Type")   ?: "(none)"
                     val cacheControl = conn.getHeaderField("Cache-Control")  ?: "(none)"
                     val expires      = conn.getHeaderField("Expires")        ?: "(none)"
                     Log.i("CalAlarm", "[$id] 200 OK  ETag=$etag  Last-Modified=$lastMod  " +
-                        "Content-Length=$contentLen  Cache-Control=$cacheControl  Expires=$expires")
+                        "Content-Length=$contentLen  Content-Type=$contentType  Cache-Control=$cacheControl  Expires=$expires")
 
                     val bytes = conn.inputStream.use { it.readBytes() }
                     conn.disconnect()
+
+                    val bodyStart = bytes.toString(Charsets.UTF_8).trimStart()
+                    if (!bodyStart.startsWith("BEGIN:VCALENDAR")) {
+                        Log.w("CalAlarm", "[$id] 200 OK but response is not a valid ICS file " +
+                            "(Content-Type=$contentType, ${bytes.size} bytes)")
+                        prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
+                        prefs.setIcsLastFetchStatus(id, "Not an ICS file (Content-Type: $contentType)")
+                        return false
+                    }
 
                     if (etag    != "(none)") prefs.setIcsEtag(id, etag)
                     if (lastMod != "(none)") prefs.setIcsLastModified(id, lastMod)
@@ -147,17 +160,22 @@ object IcsFetcher {
                     }
                     prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
                     prefs.setIcsLastFetchStatus(id, "OK")
+                    return true
                 }
                 else -> {
                     Log.w("CalAlarm", "[$id] unexpected HTTP $code")
                     conn.disconnect()
+                    prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
                     prefs.setIcsLastFetchStatus(id, "HTTP $code")
+                    return false
                 }
             }
         } catch (e: Exception) {
             Log.w("CalAlarm", "[$id] GET failed: ${e.message}")
             conn.runCatching { disconnect() }
+            prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
             prefs.setIcsLastFetchStatus(id, e.message ?: "Network error")
+            return false
         }
     }
 

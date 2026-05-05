@@ -36,7 +36,17 @@ class PollReceiver : BroadcastReceiver() {
         }
 
         val nowDt  = LocalDateTime.now()
-        val events = sources.flatMap { IcsParser.parse(it.text, nowDt, nowDt.plusHours(25)) }
+        val today  = nowDt.toLocalDate()
+        val parsedPerSource = sources.map { source ->
+            source to IcsParser.parse(source.text, nowDt, nowDt.plusHours(25))
+        }
+        for ((source, sourceEvents) in parsedPerSource) {
+            prefs.setIcsLastFetchEventCount(
+                prefs.urlId(source.url),
+                sourceEvents.count { it.start.toLocalDate() == today }
+            )
+        }
+        val events = parsedPerSource.flatMap { it.second }
 
         AlarmScheduler.cancelAllEventAlarms(context, prefs.activeAlarmCodes)
 

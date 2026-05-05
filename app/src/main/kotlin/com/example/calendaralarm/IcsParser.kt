@@ -124,6 +124,7 @@ object IcsParser {
         }
         val freq      = params["FREQ"]?.uppercase() ?: return emptyList()
         val interval  = params["INTERVAL"]?.toLongOrNull() ?: 1L
+        val hasCount  = params.containsKey("COUNT")
         val maxCount  = params["COUNT"]?.toIntOrNull() ?: Int.MAX_VALUE
         val ruleUntil = params["UNTIL"]?.let { parseDt("", it.trimEnd('Z'))?.first }
         val effectiveEnd = if (ruleUntil != null) minOf(windowEnd, ruleUntil) else windowEnd
@@ -135,29 +136,32 @@ object IcsParser {
         val byMonth       = params["BYMONTH"]?.split(',')?.mapNotNull { it.toIntOrNull() } ?: emptyList()
 
         val result = mutableListOf<LocalDateTime>()
+        var generatedCount = 0
 
         fun emit(dt: LocalDateTime) {
-            if (dt >= dtStart && dt <= effectiveEnd && dt !in excludeTimes && result.size < maxCount)
-                if (dt >= windowStart) result.add(dt)
+            if (dt >= dtStart && dt <= effectiveEnd && generatedCount < maxCount) {
+                generatedCount++
+                if (dt !in excludeTimes && dt >= windowStart) result.add(dt)
+            }
         }
 
         when (freq) {
             "DAILY" -> {
                 var cur = dtStart
-                val skip = if (cur < windowStart) ChronoUnit.DAYS.between(cur, windowStart) / interval else 0L
+                val skip = if (!hasCount && cur < windowStart) ChronoUnit.DAYS.between(cur, windowStart) / interval else 0L
                 if (skip > 1) cur = cur.plusDays((skip - 1) * interval)
-                while (cur <= effectiveEnd && result.size < maxCount) { emit(cur); cur = cur.plusDays(interval) }
+                while (cur <= effectiveEnd && generatedCount < maxCount) { emit(cur); cur = cur.plusDays(interval) }
             }
 
             "WEEKLY" -> {
                 val targetDows = (if (plainDay.isEmpty()) listOf(dtStart.dayOfWeek)
                                   else plainDay.map { it.dayOfWeek }).toSet()
                 var anchor = dtStart
-                val skip = if (anchor < windowStart) ChronoUnit.WEEKS.between(anchor, windowStart) / interval else 0L
+                val skip = if (!hasCount && anchor < windowStart) ChronoUnit.WEEKS.between(anchor, windowStart) / interval else 0L
                 if (skip > 1) anchor = anchor.plusWeeks((skip - 1) * interval)
 
                 var safety = 0
-                while (anchor <= effectiveEnd && result.size < maxCount && safety++ < 3000) {
+                while (anchor <= effectiveEnd && generatedCount < maxCount && safety++ < 3000) {
                     for (i in 0..6) {
                         val c = anchor.plusDays(i.toLong())
                         if (c.dayOfWeek in targetDows) emit(c)
@@ -169,12 +173,12 @@ object IcsParser {
             "MONTHLY" -> {
                 val time = dtStart.toLocalTime()
                 var curMonth = dtStart.withDayOfMonth(1).toLocalDate()
-                val skip = if (curMonth.atStartOfDay() < windowStart)
+                val skip = if (!hasCount && curMonth.atStartOfDay() < windowStart)
                     ChronoUnit.MONTHS.between(curMonth, windowStart.toLocalDate()) / interval else 0L
                 if (skip > 1) curMonth = curMonth.plusMonths((skip - 1) * interval)
 
                 var safety = 0
-                while (curMonth.atStartOfDay() <= effectiveEnd && result.size < maxCount && safety++ < 500) {
+                while (curMonth.atStartOfDay() <= effectiveEnd && generatedCount < maxCount && safety++ < 500) {
                     for (d in monthCandidates(curMonth.year, curMonth.month, dtStart.dayOfMonth,
                                               positionalDay, plainDay, byMonthDay))
                         emit(d.atTime(time))
@@ -185,11 +189,11 @@ object IcsParser {
             "YEARLY" -> {
                 val time = dtStart.toLocalTime()
                 var year  = dtStart.year
-                val skip  = if (year < windowStart.year) (windowStart.year - year).toLong() / interval else 0L
+                val skip  = if (!hasCount && year < windowStart.year) (windowStart.year - year).toLong() / interval else 0L
                 if (skip > 1) year += ((skip - 1) * interval).toInt()
 
                 var safety = 0
-                while (year <= effectiveEnd.year + 1 && result.size < maxCount && safety++ < 200) {
+                while (year <= effectiveEnd.year + 1 && generatedCount < maxCount && safety++ < 200) {
                     val targetMonths = if (byMonth.isEmpty()) listOf(dtStart.monthValue) else byMonth
                     for (monthNum in targetMonths) {
                         val month = Month.of(monthNum)

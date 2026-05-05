@@ -67,10 +67,14 @@ class Prefs(context: Context) {
     fun icsLastFetchStatus(id: String): String  = p.getString("fetch_ok_$id", "") ?: ""
     fun setIcsLastFetchStatus(id: String, v: String) = p.edit().putString("fetch_ok_$id", v).apply()
 
+    // Number of events for today from this source (-1 = not yet known).
+    fun icsLastFetchEventCount(id: String): Int = p.getInt("event_count_$id", -1)
+    fun setIcsLastFetchEventCount(id: String, v: Int) = p.edit().putInt("event_count_$id", v).apply()
+
     fun clearSourceCache(id: String) {
         p.edit()
             .remove("etag_$id").remove("lmod_$id").remove("hash_$id")
-            .remove("fetch_ms_$id").remove("fetch_ok_$id")
+            .remove("fetch_ms_$id").remove("fetch_ok_$id").remove("event_count_$id")
             .apply()
     }
 }
