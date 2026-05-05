@@ -7,13 +7,31 @@
     android:background="@drawable/event_card_bg"
     android:layout_marginBottom="8dp">
 
-    <TextView
-        android:id="@+id/eventTitle"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textStyle="bold"
-        android:textSize="15sp"
-        android:textColor="@android:color/black" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/eventTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textStyle="bold"
+            android:textSize="15sp"
+            android:textColor="@android:color/black" />
+
+        <ImageView
+            android:id="@+id/bellIcon"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_bell"
+            android:contentDescription="Alarm enabled"
+            android:visibility="gone" />
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/eventTime"

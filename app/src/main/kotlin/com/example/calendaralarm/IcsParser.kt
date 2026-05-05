@@ -12,7 +12,10 @@ data class CalendarEvent(
     val end: LocalDateTime,
     val isAllDay: Boolean,
     val location: String = "",
-    val meetingUrl: String? = null
+    val meetingUrl: String? = null,
+    val sourceId: String = "",
+    val organizer: String = "",
+    val attendees: List<String> = emptyList()
 )
 
 object IcsParser {
@@ -28,7 +31,8 @@ object IcsParser {
         return null
     }
 
-    fun parse(icsText: String, windowStart: LocalDateTime, windowEnd: LocalDateTime): List<CalendarEvent> {
+    fun parse(icsText: String, windowStart: LocalDateTime, windowEnd: LocalDateTime,
+              sourceId: String = ""): List<CalendarEvent> {
         val rawEvents = mutableListOf<RawEvent>()
         var cur: RawEvent? = null
 
@@ -54,6 +58,8 @@ object IcsParser {
                                                parseDt(key, v.trim())?.let { cur!!.exDates.add(it.first) } }
                         "LOCATION"      -> cur!!.location = unescape(value)
                         "DESCRIPTION"   -> cur!!.description = unescape(value)
+                        "ORGANIZER"     -> cur!!.organizer = value.removePrefix("mailto:").trim()
+                        "ATTENDEE"      -> cur!!.attendees.add(value.removePrefix("mailto:").trim())
                     }
                 }
             }
@@ -80,12 +86,14 @@ object IcsParser {
                     val dtEnd = dtStart.plus(duration)
                     if (dtStart < windowEnd && dtEnd > windowStart)
                         result.add(CalendarEvent(uid, raw.summary ?: "(No title)", dtStart, dtEnd, raw.isAllDay,
-                            raw.location, extractMeetingUrl(raw.location, raw.description)))
+                            raw.location, extractMeetingUrl(raw.location, raw.description),
+                            sourceId, raw.organizer, raw.attendees.toList()))
                 }
             } else {
                 for (occ in expandRrule(rrule, dtStart, excludeTimes, windowStart, windowEnd))
                     result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay,
-                        raw.location, extractMeetingUrl(raw.location, raw.description)))
+                        raw.location, extractMeetingUrl(raw.location, raw.description),
+                        sourceId, raw.organizer, raw.attendees.toList()))
             }
 
             // Include modified instances that fall in the window
@@ -96,7 +104,10 @@ object IcsParser {
                 if (ovStart < windowEnd && ovEnd > windowStart)
                     result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
                         ov.location.ifEmpty { raw.location },
-                        extractMeetingUrl(ov.location.ifEmpty { raw.location }, ov.description.ifEmpty { raw.description })))
+                        extractMeetingUrl(ov.location.ifEmpty { raw.location }, ov.description.ifEmpty { raw.description }),
+                        sourceId,
+                        ov.organizer.ifEmpty { raw.organizer },
+                        ov.attendees.ifEmpty { raw.attendees }.toList()))
             }
         }
 
@@ -112,7 +123,8 @@ object IcsParser {
                 val ovEnd = ov.dtEnd ?: ovStart.plus(ov.duration ?: Duration.ofHours(1))
                 if (ovStart < windowEnd && ovEnd > windowStart)
                     result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
-                        ov.location, extractMeetingUrl(ov.location, ov.description)))
+                        ov.location, extractMeetingUrl(ov.location, ov.description),
+                        sourceId, ov.organizer, ov.attendees.toList()))
             }
         }
 
@@ -275,6 +287,8 @@ object IcsParser {
         var isAllDay: Boolean = false,
         var location: String = "",
         var description: String = "",
+        var organizer: String = "",
+        val attendees: MutableList<String> = mutableListOf(),
         val exDates: MutableSet<LocalDateTime> = mutableSetOf()
     )
 

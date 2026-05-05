@@ -35,10 +35,12 @@ class PollReceiver : BroadcastReceiver() {
             return
         }
 
-        val nowDt  = LocalDateTime.now()
-        val today  = nowDt.toLocalDate()
+        val nowDt = LocalDateTime.now()
+        val today = nowDt.toLocalDate()
+
         val parsedPerSource = sources.map { source ->
-            source to IcsParser.parse(source.text, nowDt, nowDt.plusHours(25))
+            val id = prefs.urlId(source.url)
+            source to IcsParser.parse(source.text, nowDt, nowDt.plusHours(25), id)
         }
         for ((source, sourceEvents) in parsedPerSource) {
             prefs.setIcsLastFetchEventCount(
@@ -48,12 +50,23 @@ class PollReceiver : BroadcastReceiver() {
         }
         val events = parsedPerSource.flatMap { it.second }
 
+        val filters    = prefs.eventFilters
+        val eventFlags = events.associateWith { FilterEngine.evaluate(it, filters) }
+
+        for (filter in filters) {
+            prefs.setFilterMatchCount(filter.id,
+                events.count { it.start.toLocalDate() == today
+                             && FilterEngine.matches(it, filter.criteria) })
+        }
+
         AlarmScheduler.cancelAllEventAlarms(context, prefs.activeAlarmCodes)
 
-        val advanceMs = prefs.advanceMinutes * 60_000L
-        val now       = System.currentTimeMillis()
-        val newCodes  = mutableSetOf<Int>()
+        val now      = System.currentTimeMillis()
+        val newCodes = mutableSetOf<Int>()
         for (event in events) {
+            val ef = eventFlags[event] ?: FilterEngine.EventFlags()
+            if (!ef.alarmEnabled) continue
+            val advanceMs = (ef.advanceMinutes ?: prefs.advanceMinutes) * 60_000L
             val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
             if (triggerMs > now) {

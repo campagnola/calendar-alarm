@@ -115,8 +115,13 @@ class Prefs(context: Context) {
         p.edit()
             .putString("filter_ids", ids.joinToString("\n"))
             .remove("filter_data_$filterId")
+            .remove("filter_mc_$filterId")
             .apply()
     }
+
+    // Number of today's events matching this filter (-1 = not yet computed).
+    fun filterMatchCount(filterId: String): Int = p.getInt("filter_mc_$filterId", -1)
+    fun setFilterMatchCount(filterId: String, v: Int) = p.edit().putInt("filter_mc_$filterId", v).apply()
 
     fun getFilter(filterId: String): EventFilter? =
         p.getString("filter_data_$filterId", null)?.let { json ->

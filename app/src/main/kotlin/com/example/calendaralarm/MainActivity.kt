@@ -11,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -70,7 +71,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadSchedule(forceDownload: Boolean = false) {
-        lastLoadMs = System.currentTimeMillis()
+        lastLoadMs   = System.currentTimeMillis()
         lastLoadDate = LocalDate.now()
 
         if (prefs.icsSources.isEmpty()) {
@@ -83,7 +84,8 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            val todayEvents = withContext(Dispatchers.IO) {
+            // Returns list of (event, alarmEnabled) for today, or null on total failure.
+            val todayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
                 val sources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
                 if (sources.isEmpty()) return@withContext null
 
@@ -92,7 +94,8 @@ class MainActivity : AppCompatActivity() {
                 val dayStart = today.atStartOfDay()
 
                 val parsedPerSource = sources.map { source ->
-                    source to IcsParser.parse(source.text, dayStart, dayStart.plusHours(25))
+                    val id = prefs.urlId(source.url)
+                    source to IcsParser.parse(source.text, dayStart, dayStart.plusHours(25), id)
                 }
                 for ((source, sourceEvents) in parsedPerSource) {
                     prefs.setIcsLastFetchEventCount(
@@ -101,9 +104,22 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
                 val allEvents = parsedPerSource.flatMap { it.second }
-                scheduleAlarms(allEvents)
 
-                allEvents.filter { it.start.toLocalDate() == today }.sortedBy { it.start }
+                val filters    = prefs.eventFilters
+                val eventFlags = allEvents.associateWith { FilterEngine.evaluate(it, filters) }
+
+                for (filter in filters) {
+                    prefs.setFilterMatchCount(filter.id,
+                        allEvents.count { it.start.toLocalDate() == today
+                                       && FilterEngine.matches(it, filter.criteria) })
+                }
+
+                scheduleAlarms(allEvents, eventFlags)
+
+                allEvents
+                    .filter { it.start.toLocalDate() == today && eventFlags[it]?.visible != false }
+                    .sortedBy { it.start }
+                    .map { it to (eventFlags[it]?.alarmEnabled != false) }
             }
 
             when {
@@ -113,20 +129,24 @@ class MainActivity : AppCompatActivity() {
                     binding.statusText.visibility = View.GONE
                     val fmt = timeFormatter(this@MainActivity)
                     val now = LocalDateTime.now()
-                    for (event in todayEvents) addEventCard(event, fmt, now)
+                    for ((event, alarmEnabled) in todayEvents) addEventCard(event, fmt, now, alarmEnabled)
                 }
             }
         }
     }
 
-    private fun scheduleAlarms(events: List<CalendarEvent>) {
+    private fun scheduleAlarms(events: List<CalendarEvent>,
+                               flags: Map<CalendarEvent, FilterEngine.EventFlags>) {
         AlarmScheduler.cancelAllEventAlarms(this, prefs.activeAlarmCodes)
 
-        val advanceMs = prefs.advanceMinutes * 60_000L
+        val defaultAdvanceMs = prefs.advanceMinutes * 60_000L
         val now = System.currentTimeMillis()
         val newCodes = mutableSetOf<Int>()
         for (event in events) {
-            val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val ef = flags[event] ?: FilterEngine.EventFlags()
+            if (!ef.alarmEnabled) continue
+            val advanceMs = (ef.advanceMinutes ?: prefs.advanceMinutes) * 60_000L
+            val startMs   = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val triggerMs = startMs - advanceMs
             if (triggerMs > now) {
                 Log.i("CalAlarm", "MainActivity scheduling alarm for '${event.summary}' trigger=${triggerMs - now}ms from now")
@@ -137,7 +157,8 @@ class MainActivity : AppCompatActivity() {
         prefs.activeAlarmCodes = newCodes
     }
 
-    private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter, now: LocalDateTime) {
+    private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter,
+                             now: LocalDateTime, alarmEnabled: Boolean) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
 
         val bg = when {
@@ -150,6 +171,9 @@ class MainActivity : AppCompatActivity() {
         view.findViewById<TextView>(R.id.eventTitle).text = event.summary
         view.findViewById<TextView>(R.id.eventTime).text = if (event.isAllDay) "All day"
             else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
+
+        view.findViewById<ImageView>(R.id.bellIcon).visibility =
+            if (alarmEnabled) View.VISIBLE else View.GONE
 
         val locationView = view.findViewById<TextView>(R.id.eventLocation)
         if (event.location.isNotEmpty()) {

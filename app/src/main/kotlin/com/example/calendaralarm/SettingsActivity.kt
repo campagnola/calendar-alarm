@@ -85,11 +85,12 @@ class SettingsActivity : AppCompatActivity() {
     private fun filterBriefStatus(filter: EventFilter): String {
         val nc = filter.criteria.size
         val na = filter.actions.size
-        if (nc == 0 && na == 0) return "No criteria or actions"
+        val mc = prefs.filterMatchCount(filter.id)
         return buildList {
-            if (nc > 0) add("$nc ${if (nc == 1) "criterion" else "criteria"}")
-            if (na > 0) add("$na ${if (na == 1) "action" else "actions"}")
-        }.joinToString(" · ")
+            if (mc >= 0) add("$mc ${if (mc == 1) "event" else "events"} today")
+            if (nc > 0)  add("$nc ${if (nc == 1) "criterion" else "criteria"}")
+            if (na > 0)  add("$na ${if (na == 1) "action" else "actions"}")
+        }.joinToString(" · ").ifEmpty { "No criteria or actions" }
     }
 
     private fun briefStatus(id: String): String {
