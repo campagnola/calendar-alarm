@@ -158,6 +158,10 @@ object IcsFetcher {
                         prefs.setIcsContentHash(id, newHash)
                         Log.i("CalAlarm", "[$id] cached ${bytes.size} bytes at ${cacheFile.lastModified()}")
                     }
+                    if (prefs.icsSourceName(id).isEmpty()) {
+                        IcsParser.calendarName(bytes.toString(Charsets.UTF_8))
+                            ?.let { prefs.setIcsSourceName(id, it) }
+                    }
                     prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
                     prefs.setIcsLastFetchStatus(id, "OK")
                     return true

@@ -19,6 +19,15 @@ object IcsParser {
     private val dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
     private val dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd")
 
+    fun calendarName(icsText: String): String? {
+        for (line in unfold(icsText)) {
+            if (line.startsWith("X-WR-CALNAME:"))
+                return unescape(line.removePrefix("X-WR-CALNAME:").trim())
+            if (line == "BEGIN:VEVENT") break
+        }
+        return null
+    }
+
     fun parse(icsText: String, windowStart: LocalDateTime, windowEnd: LocalDateTime): List<CalendarEvent> {
         val rawEvents = mutableListOf<RawEvent>()
         var cur: RawEvent? = null
