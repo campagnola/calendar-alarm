@@ -9,46 +9,114 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <com.google.android.material.textfield.TextInputLayout
+        <!-- Type selector (hidden when editing an existing source) -->
+        <RadioGroup
+            android:id="@+id/typeGroup"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="ICS Calendar URL"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/urlInput"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <RadioButton
+                android:id="@+id/localRadio"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Local calendar" />
+
+            <RadioButton
+                android:id="@+id/icsRadio"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="ICS URL" />
+
+        </RadioGroup>
+
+        <!-- ICS section -->
+        <LinearLayout
+            android:id="@+id/icsSectionLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textUri"
-                android:singleLine="true" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:hint="ICS Calendar URL"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/urlInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri"
+                    android:singleLine="true" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="Calendar name"
-            android:layout_marginTop="12dp"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/nameInput"
+            <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_height="wrap_content"
+                android:hint="Calendar name"
+                android:layout_marginTop="12dp"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/nameInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-        <TextView
-            android:id="@+id/statusText"
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:textSize="13sp"
+                android:textColor="#AAAAAA" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/reloadButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Reload now"
+                android:layout_marginTop="12dp"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        </LinearLayout>
+
+        <!-- Local calendar section -->
+        <LinearLayout
+            android:id="@+id/localSectionLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:textSize="13sp"
-            android:textColor="#AAAAAA" />
+            android:orientation="vertical"
+            android:visibility="visible">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/reloadButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Reload now"
-            android:layout_marginTop="12dp"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+            <TextView
+                android:id="@+id/calendarPermissionText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Calendar permission required. Tap here to grant access."
+                android:textColor="#CC0000"
+                android:textSize="13sp"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Select calendars to include:"
+                android:textSize="13sp"
+                android:textColor="#AAAAAA"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:id="@+id/calendarListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/saveButton"

@@ -147,6 +147,22 @@ class Prefs(context: Context) {
             runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
         }
 
+    // ── Local device calendar source ───────────────────────────────────────────
+
+    var localCalendarEnabled: Boolean
+        get() = p.getBoolean("local_cal_enabled", false)
+        set(v) = p.edit().putBoolean("local_cal_enabled", v).apply()
+
+    // Comma-joined set of CalendarContract calendar IDs the user has selected.
+    var localCalendarIds: Set<Long>
+        get() = (p.getString("local_cal_ids", "") ?: "")
+                    .split(',').filter { it.isNotEmpty() }
+                    .mapNotNull { it.toLongOrNull() }.toSet()
+        set(v) = p.edit().putString("local_cal_ids", v.joinToString(",")).apply()
+
+    fun localCalendarEventCount(): Int = p.getInt("local_event_count", -1)
+    fun setLocalCalendarEventCount(v: Int) = p.edit().putInt("local_event_count", v).apply()
+
     fun clearSourceCache(id: String) {
         p.edit()
             .remove("etag_$id").remove("lmod_$id").remove("hash_$id")

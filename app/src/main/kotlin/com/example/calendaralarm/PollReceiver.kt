@@ -47,7 +47,13 @@ class PollReceiver : BroadcastReceiver() {
                 sourceEvents.count { it.start.toLocalDate() == today }
             )
         }
-        val events = parsedPerSource.flatMap { it.second }
+        val localEvents = if (prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()) {
+            val end = nowDt.plusHours(25)
+            LocalCalendarReader.fetchEvents(context, prefs.localCalendarIds, nowDt, end).also { evs ->
+                prefs.setLocalCalendarEventCount(evs.count { it.start.toLocalDate() == today })
+            }
+        } else emptyList()
+        val events = parsedPerSource.flatMap { it.second } + localEvents
 
         val filters    = prefs.eventFilters
         val eventFlags = events.associateWith { FilterEngine.evaluate(it, filters) }

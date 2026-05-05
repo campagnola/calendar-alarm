@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity() {
         lastLoadDate   = today
         lastVisibleDay = visDay
 
-        if (prefs.icsSources.isEmpty()) {
+        if (prefs.icsSources.isEmpty() && !prefs.localCalendarEnabled) {
             showMessage("Tap the gear icon to add a calendar source.")
             return
         }
@@ -97,14 +97,22 @@ class MainActivity : AppCompatActivity() {
             // Returns events for the visible window paired with their alarm-enabled flag,
             // or null on total fetch failure.
             val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
-                val sources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
-                if (sources.isEmpty()) return@withContext null
-
                 val visDayStart = visDay.atStartOfDay()
                 val windowStart = if (visDay == today) visDayStart else now
                 val windowEnd   = visDayStart.plusHours(25)
 
-                val parsedPerSource = sources.map { source ->
+                val icsSources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
+
+                val localEvents = if (prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()) {
+                    LocalCalendarReader.fetchEvents(this@MainActivity, prefs.localCalendarIds, windowStart, windowEnd)
+                } else emptyList()
+
+                // Fail only if ICS was configured but all fetches failed and there's no local fallback
+                if (prefs.icsSources.isNotEmpty() && icsSources.isEmpty() && localEvents.isEmpty()) {
+                    return@withContext null
+                }
+
+                val parsedPerSource = icsSources.map { source ->
                     val id = prefs.urlId(source.url)
                     source to IcsParser.parse(source.text, windowStart, windowEnd, id)
                 }
@@ -114,7 +122,11 @@ class MainActivity : AppCompatActivity() {
                         sourceEvents.count { it.start.toLocalDate() == today }
                     )
                 }
-                val allEvents = parsedPerSource.flatMap { it.second }
+                if (prefs.localCalendarEnabled) {
+                    prefs.setLocalCalendarEventCount(
+                        localEvents.count { it.start.toLocalDate() == today })
+                }
+                val allEvents = parsedPerSource.flatMap { it.second } + localEvents
 
                 val filters    = prefs.eventFilters
                 val eventFlags = allEvents.associateWith { FilterEngine.evaluate(it, filters) }

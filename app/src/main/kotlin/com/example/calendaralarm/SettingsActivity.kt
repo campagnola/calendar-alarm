@@ -56,12 +56,27 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun populateSources() {
         binding.urlSourcesContainer.removeAllViews()
+
+        if (prefs.localCalendarEnabled) {
+            val row = ItemSourceRowBinding.inflate(LayoutInflater.from(this),
+                                                   binding.urlSourcesContainer, false)
+            val count = prefs.localCalendarEventCount()
+            row.sourceNameText.text   = "Local calendars"
+            row.sourceStatusText.text = if (count >= 0) "$count event${if (count == 1) "" else "s"} today"
+                                        else "Not yet loaded"
+            row.root.setOnClickListener {
+                startActivity(Intent(this, SourceSettingsActivity::class.java)
+                    .putExtra(SourceSettingsActivity.EXTRA_IS_LOCAL, true))
+            }
+            binding.urlSourcesContainer.addView(row.root)
+        }
+
         for (url in prefs.icsSources) {
             val row = ItemSourceRowBinding.inflate(LayoutInflater.from(this),
                                                    binding.urlSourcesContainer, false)
             val id = prefs.urlId(url)
             val name = prefs.icsSourceName(id)
-            row.sourceNameText.text = if (name.isNotEmpty()) name else url
+            row.sourceNameText.text   = if (name.isNotEmpty()) name else url
             row.sourceStatusText.text = briefStatus(id)
             row.root.setOnClickListener {
                 startActivity(Intent(this, SourceSettingsActivity::class.java)
