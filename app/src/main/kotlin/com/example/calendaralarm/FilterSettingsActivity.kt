@@ -17,11 +17,12 @@ class FilterSettingsActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_FILTER_ID = "filter_id"
 
-        private val CRITERION_TYPES = listOf("Source calendar", "Event name", "Sender", "Attendees")
-        private val STRING_OPS      = FilterCriterion.StringOp.values().map { it.display }
-        private val ACTION_TYPES    = listOf("Visibility", "Alarm", "Advance warning")
-        private val VISIBILITY_OPTS = listOf("Show", "Hide")
-        private val ALARM_OPTS      = listOf("Enable", "Disable")
+        private val CRITERION_TYPES  = listOf("Source calendar", "Event name", "Location", "Sender", "Attendees")
+        private val STRING_OPS       = FilterCriterion.StringOp.values().map { it.display }
+        private val ACTION_TYPES     = listOf("Visibility", "Alarm", "Advance warning")
+        private val VISIBILITY_OPTS  = listOf("Show", "Hide")
+        private val ALARM_OPTS       = listOf("Enable", "Disable")
+        private val RELATIVE_TO_OPTS = listOf("before event start", "before event end")
     }
 
     private lateinit var binding: ActivityFilterSettingsBinding
@@ -106,8 +107,9 @@ class FilterSettingsActivity : AppCompatActivity() {
             is FilterCriterion.StringCriterion -> {
                 val typeIdx = when (criterion.field) {
                     FilterCriterion.StringField.EVENT_NAME -> 1
-                    FilterCriterion.StringField.SENDER     -> 2
-                    FilterCriterion.StringField.ATTENDEES  -> 3
+                    FilterCriterion.StringField.LOCATION   -> 2
+                    FilterCriterion.StringField.SENDER     -> 3
+                    FilterCriterion.StringField.ATTENDEES  -> 4
                 }
                 b.typeDropdown.setText(CRITERION_TYPES[typeIdx], false)
                 showForType(typeIdx)
@@ -135,10 +137,11 @@ class FilterSettingsActivity : AppCompatActivity() {
                     val srcIdx = sourceNames.indexOf(nameText)
                     if (srcIdx >= 0) result.add(FilterCriterion.SourceCriterion(sourceIds[srcIdx]))
                 }
-                in 1..3 -> {
+                in 1..4 -> {
                     val field = when (typeIdx) {
                         1    -> FilterCriterion.StringField.EVENT_NAME
-                        2    -> FilterCriterion.StringField.SENDER
+                        2    -> FilterCriterion.StringField.LOCATION
+                        3    -> FilterCriterion.StringField.SENDER
                         else -> FilterCriterion.StringField.ATTENDEES
                     }
                     val opIdx = STRING_OPS.indexOf(b.opDropdown.text.toString())
@@ -158,10 +161,13 @@ class FilterSettingsActivity : AppCompatActivity() {
 
         b.actionTypeDropdown.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, ACTION_TYPES))
+        b.advanceRelativeDropdown.setAdapter(
+            ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, RELATIVE_TO_OPTS))
 
         fun showForActionType(idx: Int) {
-            b.toggleLayout.visibility  = View.GONE
-            b.advanceLayout.visibility = View.GONE
+            b.toggleLayout.visibility          = View.GONE
+            b.advanceLayout.visibility         = View.GONE
+            b.advanceRelativeLayout.visibility = View.GONE
             when (idx) {
                 0 -> {
                     b.toggleDropdown.setAdapter(
@@ -173,7 +179,10 @@ class FilterSettingsActivity : AppCompatActivity() {
                         ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, ALARM_OPTS))
                     b.toggleLayout.visibility = View.VISIBLE
                 }
-                2 -> b.advanceLayout.visibility = View.VISIBLE
+                2 -> {
+                    b.advanceLayout.visibility = View.VISIBLE
+                    b.advanceRelativeLayout.visibility = View.VISIBLE
+                }
             }
         }
 
@@ -197,11 +206,14 @@ class FilterSettingsActivity : AppCompatActivity() {
                 b.actionTypeDropdown.setText(ACTION_TYPES[2], false)
                 showForActionType(2)
                 b.advanceInput.setText(action.minutes.toString())
+                b.advanceRelativeDropdown.setText(
+                    if (action.relativeToEnd) RELATIVE_TO_OPTS[1] else RELATIVE_TO_OPTS[0], false)
             }
             null -> {
                 b.actionTypeDropdown.setText(ACTION_TYPES[0], false)
                 showForActionType(0)
                 b.toggleDropdown.setText(VISIBILITY_OPTS[0], false)
+                b.advanceRelativeDropdown.setText(RELATIVE_TO_OPTS[0], false)
             }
         }
 
@@ -219,7 +231,8 @@ class FilterSettingsActivity : AppCompatActivity() {
                 1 -> result.add(FilterAction.AlarmAction(
                         b.toggleDropdown.text.toString() == ALARM_OPTS[0]))
                 2 -> result.add(FilterAction.AdvanceAction(
-                        b.advanceInput.text.toString().toIntOrNull() ?: 5))
+                        b.advanceInput.text.toString().toIntOrNull() ?: 5,
+                        b.advanceRelativeDropdown.text.toString() == RELATIVE_TO_OPTS[1]))
             }
         }
         return result

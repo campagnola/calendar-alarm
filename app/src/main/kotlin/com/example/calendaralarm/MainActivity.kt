@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
@@ -31,6 +33,15 @@ class MainActivity : AppCompatActivity() {
     private var lastLoadMs   = 0L
     private var lastLoadDate: LocalDate? = null
     private var lastVisibleDay: LocalDate? = null
+    private var refreshMenuItem: MenuItem? = null
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val minuteRefreshRunnable = object : Runnable {
+        override fun run() {
+            loadSchedule(silent = true)
+            handler.postDelayed(this, 60_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,17 +56,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val today   = LocalDate.now()
-        val visDay  = visibleDay(LocalDateTime.now())
-        val elapsed = System.currentTimeMillis() - lastLoadMs
-        val pollMs  = prefs.pollIntervalMinutes * 60_000L
-        if (lastLoadDate != today || lastVisibleDay != visDay || elapsed >= pollMs) {
-            loadSchedule()
-        }
+        loadSchedule()
+        handler.postDelayed(minuteRefreshRunnable, 60_000L)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(minuteRefreshRunnable)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
+        refreshMenuItem = menu.findItem(R.id.action_refresh)
         return true
     }
 
@@ -75,7 +87,7 @@ class MainActivity : AppCompatActivity() {
 
     // ── Schedule loading ──────────────────────────────────────────────────────
 
-    private fun loadSchedule(forceDownload: Boolean = false) {
+    private fun loadSchedule(forceDownload: Boolean = false, silent: Boolean = false) {
         val now    = LocalDateTime.now()
         val today  = now.toLocalDate()
         val visDay = visibleDay(now)
@@ -89,9 +101,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        binding.scheduleContainer.removeAllViews()
-        binding.statusText.text = "Loading…"
-        binding.statusText.visibility = View.VISIBLE
+        if (!silent) {
+            refreshMenuItem?.isEnabled = false
+            binding.statusText.text = "Loading…"
+            binding.statusText.visibility = View.VISIBLE
+        }
 
         lifecycleScope.launch {
             // Returns events for the visible window paired with their alarm-enabled flag,
@@ -152,6 +166,7 @@ class MainActivity : AppCompatActivity() {
                 displayEvents.isEmpty()  ->
                     showMessage(if (visDay == today) "No events today." else "No events tomorrow.")
                 else -> {
+                    binding.scheduleContainer.removeAllViews()
                     binding.statusText.visibility = View.GONE
                     val fmt        = timeFormatter(this@MainActivity)
                     val displayNow = LocalDateTime.now()
@@ -169,6 +184,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            refreshMenuItem?.isEnabled = true
         }
     }
 
@@ -195,6 +211,11 @@ class MainActivity : AppCompatActivity() {
     private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter,
                              now: LocalDateTime, alarmEnabled: Boolean) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
+
+        view.setOnClickListener {
+            startActivity(Intent(this, EventDetailActivity::class.java)
+                .putExtra(EventDetailActivity.EXTRA_EVENT_JSON, event.toJson()))
+        }
 
         val bg = when {
             event.end   <= now -> R.drawable.event_card_bg_past

@@ -20,6 +20,11 @@
         android:theme="@style/Theme.CalendarAlarm">
 
         <activity
+            android:name=".EventDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
             android:name=".AlarmActivity"
             android:showWhenLocked="true"
             android:turnScreenOn="true"

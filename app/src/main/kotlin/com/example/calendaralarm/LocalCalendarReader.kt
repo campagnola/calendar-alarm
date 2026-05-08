@@ -96,15 +96,16 @@ object LocalCalendarReader {
 
                 val calId = cursor.getLong(cursor.getColumnIndex(CalendarContract.Instances.CALENDAR_ID))
                 events.add(CalendarEvent(
-                    uid        = uid,
-                    summary    = cursor.getString(titleCol) ?: "(No title)",
-                    start      = startDt,
-                    end        = endDt,
-                    isAllDay   = isAllDay,
-                    location   = cursor.getString(locationCol) ?: "",
-                    organizer  = cursor.getString(orgCol)?.removePrefix("mailto:") ?: "",
-                    meetingUrl = extractMeetingUrl(desc),
-                    sourceId   = "local_$calId"
+                    uid         = uid,
+                    summary     = cursor.getString(titleCol) ?: "(No title)",
+                    start       = startDt,
+                    end         = endDt,
+                    isAllDay    = isAllDay,
+                    location    = cursor.getString(locationCol) ?: "",
+                    organizer   = cursor.getString(orgCol)?.removePrefix("mailto:") ?: "",
+                    meetingUrl  = extractMeetingUrl(desc),
+                    sourceId    = "local_$calId",
+                    description = desc
                 ))
             }
         }

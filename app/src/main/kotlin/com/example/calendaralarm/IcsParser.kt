@@ -15,8 +15,48 @@ data class CalendarEvent(
     val meetingUrl: String? = null,
     val sourceId: String = "",
     val organizer: String = "",
-    val attendees: List<String> = emptyList()
-)
+    val attendees: List<String> = emptyList(),
+    val description: String = ""
+) {
+    fun toJson(): String {
+        val obj = org.json.JSONObject().apply {
+            put("uid", uid)
+            put("summary", summary)
+            put("start", start.toString())
+            put("end", end.toString())
+            put("isAllDay", isAllDay)
+            put("location", location)
+            put("description", description)
+            meetingUrl?.let { put("meetingUrl", it) }
+            put("sourceId", sourceId)
+            put("organizer", organizer)
+            val arr = org.json.JSONArray()
+            attendees.forEach { arr.put(it) }
+            put("attendees", arr)
+        }
+        return obj.toString()
+    }
+
+    companion object {
+        fun fromJson(s: String): CalendarEvent {
+            val obj = org.json.JSONObject(s)
+            val attendeesArr = obj.optJSONArray("attendees") ?: org.json.JSONArray()
+            return CalendarEvent(
+                uid         = obj.getString("uid"),
+                summary     = obj.getString("summary"),
+                start       = LocalDateTime.parse(obj.getString("start")),
+                end         = LocalDateTime.parse(obj.getString("end")),
+                isAllDay    = obj.getBoolean("isAllDay"),
+                location    = obj.optString("location", ""),
+                description = obj.optString("description", ""),
+                meetingUrl  = obj.optString("meetingUrl", "").takeIf { it.isNotEmpty() },
+                sourceId    = obj.optString("sourceId", ""),
+                organizer   = obj.optString("organizer", ""),
+                attendees   = (0 until attendeesArr.length()).map { attendeesArr.getString(it) }
+            )
+        }
+    }
+}
 
 object IcsParser {
     private val dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
@@ -87,13 +127,13 @@ object IcsParser {
                     if (dtStart < windowEnd && dtEnd > windowStart)
                         result.add(CalendarEvent(uid, raw.summary ?: "(No title)", dtStart, dtEnd, raw.isAllDay,
                             raw.location, extractMeetingUrl(raw.location, raw.description),
-                            sourceId, raw.organizer, raw.attendees.toList()))
+                            sourceId, raw.organizer, raw.attendees.toList(), raw.description))
                 }
             } else {
                 for (occ in expandRrule(rrule, dtStart, excludeTimes, windowStart, windowEnd))
                     result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay,
                         raw.location, extractMeetingUrl(raw.location, raw.description),
-                        sourceId, raw.organizer, raw.attendees.toList()))
+                        sourceId, raw.organizer, raw.attendees.toList(), raw.description))
             }
 
             // Include modified instances that fall in the window
@@ -101,13 +141,14 @@ object IcsParser {
                 val ovStart = ov.dtStart ?: continue
                 val ovDuration = Duration.between(ovStart, ov.dtEnd ?: ovStart.plus(ov.duration ?: duration))
                 val ovEnd = ovStart.plus(ovDuration)
+                val ovDesc = ov.description.ifEmpty { raw.description }
                 if (ovStart < windowEnd && ovEnd > windowStart)
                     result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
                         ov.location.ifEmpty { raw.location },
-                        extractMeetingUrl(ov.location.ifEmpty { raw.location }, ov.description.ifEmpty { raw.description }),
+                        extractMeetingUrl(ov.location.ifEmpty { raw.location }, ovDesc),
                         sourceId,
                         ov.organizer.ifEmpty { raw.organizer },
-                        ov.attendees.ifEmpty { raw.attendees }.toList()))
+                        ov.attendees.ifEmpty { raw.attendees }.toList(), ovDesc))
             }
         }
 
@@ -124,7 +165,7 @@ object IcsParser {
                 if (ovStart < windowEnd && ovEnd > windowStart)
                     result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
                         ov.location, extractMeetingUrl(ov.location, ov.description),
-                        sourceId, ov.organizer, ov.attendees.toList()))
+                        sourceId, ov.organizer, ov.attendees.toList(), ov.description))
             }
         }
 

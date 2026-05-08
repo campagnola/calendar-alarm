@@ -7,6 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import java.time.Instant
+import java.time.ZoneId
+import org.json.JSONArray
 
 object NotificationHelper {
     const val CHANNEL_ALARM = "alarm"
@@ -37,7 +40,7 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val text = "$count ${if (count == 1) "event" else "events"} scheduled during quiet hours"
-        val notif = androidx.core.app.NotificationCompat.Builder(context, CHANNEL_REMINDER)
+        val notif = NotificationCompat.Builder(context, CHANNEL_REMINDER)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Upcoming events")
             .setContentText(text)
@@ -47,20 +50,25 @@ object NotificationHelper {
         nm.notify(QUIET_HOURS_NOTIF_ID, notif)
     }
 
-    fun buildAlarmNotification(context: Context, summary: String, startTime: String,
-                                uid: String, location: String, meetingUrl: String?): Notification {
+    fun buildAlarmNotification(context: Context, eventsJson: String): Notification {
+        val arr    = JSONArray(eventsJson)
+        val count  = arr.length()
+        val first  = arr.getJSONObject(0)
+
+        val firstSummary = first.getString("summary")
+        val startTime    = first.getString("start_time")
+        val firstUid     = first.getString("uid")
+        val firstLoc     = first.optString("location", "")
+        val firstUrl     = first.optString("meeting_url", "").takeIf { it.isNotEmpty() }
+        val maxEndTimeMs = AlarmScheduler.maxEndTimeMsFromJson(eventsJson)
+
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val base = uid.hashCode()
+        val base  = firstUid.hashCode()
 
         val alarmActivityIntent = Intent(context, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("summary", summary)
-            putExtra("start_time", startTime)
-            putExtra("uid", uid)
-            putExtra("location", location)
-            putExtra("meeting_url", meetingUrl)
+            putExtra("events_json", eventsJson)
         }
-
         val fullScreenPi = PendingIntent.getActivity(context, base + 2, alarmActivityIntent, flags)
 
         val dismissPi = PendingIntent.getBroadcast(context, base,
@@ -71,21 +79,27 @@ object NotificationHelper {
         val snoozePi = PendingIntent.getBroadcast(context, base + 1,
             Intent(context, ActionReceiver::class.java).apply {
                 action = ActionReceiver.ACTION_SNOOZE
-                putExtra("summary", summary)
-                putExtra("start_time", startTime)
-                putExtra("uid", uid)
-                putExtra("location", location)
-                putExtra("meeting_url", meetingUrl)
+                putExtra("events_json", eventsJson)
             }, flags)
 
-        val contentText = buildString {
-            append("Starts at $startTime")
-            if (location.isNotEmpty()) append(" · $location")
+        val snoozeUntilMs   = AlarmScheduler.computeSnoozeUntilMs(maxEndTimeMs, Prefs(context))
+        val snoozeUntilTime = Instant.ofEpochMilli(snoozeUntilMs)
+            .atZone(ZoneId.systemDefault()).toLocalDateTime()
+        val snoozeLabel = "Snooze until ${snoozeUntilTime.format(timeFormatter(context))}"
+
+        val title = if (count == 1) firstSummary else "$count events at $startTime"
+        val contentText = if (count == 1) {
+            buildString {
+                append("Starts at $startTime")
+                if (firstLoc.isNotEmpty()) append(" · $firstLoc")
+            }
+        } else {
+            (0 until count).joinToString("\n") { arr.getJSONObject(it).getString("summary") }
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ALARM)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle(summary)
+            .setContentTitle(title)
             .setContentText(contentText)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -93,15 +107,19 @@ object NotificationHelper {
             .setFullScreenIntent(fullScreenPi, true)
             .setContentIntent(fullScreenPi)
             .addAction(0, "Dismiss", dismissPi)
-            .addAction(0, "Snooze", snoozePi)
+            .addAction(0, snoozeLabel, snoozePi)
 
-        if (meetingUrl != null) {
+        if (count > 1) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
+        }
+
+        if (count == 1 && firstUrl != null) {
             val joinPi = PendingIntent.getBroadcast(context, base + 3,
                 Intent(context, ActionReceiver::class.java).apply {
                     action = ActionReceiver.ACTION_JOIN
-                    putExtra("meeting_url", meetingUrl)
+                    putExtra("meeting_url", firstUrl)
                 }, flags)
-            val label = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
+            val label = if (firstUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
             builder.addAction(0, label, joinPi)
         }
 

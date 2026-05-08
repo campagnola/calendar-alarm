@@ -17,15 +17,13 @@ class ActionReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_SNOOZE -> {
-                val prefs = Prefs(context)
+                val prefs      = Prefs(context)
+                val eventsJson = intent.getStringExtra("events_json") ?: return
+                val maxEndMs   = AlarmScheduler.maxEndTimeMsFromJson(eventsJson)
                 AlarmScheduler.scheduleSnooze(
                     context,
-                    System.currentTimeMillis() + prefs.snoozeMinutes * 60_000L,
-                    intent.getStringExtra("summary") ?: "Event",
-                    intent.getStringExtra("start_time") ?: "",
-                    intent.getStringExtra("uid") ?: "",
-                    intent.getStringExtra("location") ?: "",
-                    intent.getStringExtra("meeting_url")
+                    AlarmScheduler.computeSnoozeUntilMs(maxEndMs, prefs),
+                    eventsJson
                 )
             }
             ACTION_JOIN -> {

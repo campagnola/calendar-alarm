@@ -5,24 +5,29 @@ object FilterEngine {
     data class EventFlags(
         val alarmEnabled: Boolean = true,
         val visible: Boolean = true,
-        val advanceMinutes: Int? = null  // null = use global default
+        val advanceMinutes: Int? = null,         // null = use global default
+        val advanceRelativeToEnd: Boolean = false
     )
 
     /** Evaluate all filters against an event; later filters override earlier ones. */
     fun evaluate(event: CalendarEvent, filters: List<EventFilter>): EventFlags {
-        var alarmEnabled = true
-        var visible      = true
-        var advanceMin: Int? = null
+        var alarmEnabled        = true
+        var visible             = true
+        var advanceMin: Int?    = null
+        var relativeToEnd       = false
         for (filter in filters) {
             if (matches(event, filter.criteria)) {
                 for (action in filter.actions) when (action) {
-                    is FilterAction.VisibilityAction -> visible      = action.show
-                    is FilterAction.AlarmAction      -> alarmEnabled = action.enable
-                    is FilterAction.AdvanceAction    -> advanceMin   = action.minutes
+                    is FilterAction.VisibilityAction -> visible       = action.show
+                    is FilterAction.AlarmAction      -> alarmEnabled  = action.enable
+                    is FilterAction.AdvanceAction    -> {
+                        advanceMin    = action.minutes
+                        relativeToEnd = action.relativeToEnd
+                    }
                 }
             }
         }
-        return EventFlags(alarmEnabled, visible, advanceMin)
+        return EventFlags(alarmEnabled, visible, advanceMin, relativeToEnd)
     }
 
     /** True if the event satisfies all criteria (empty list = matches everything). */
@@ -35,6 +40,8 @@ object FilterEngine {
         is FilterCriterion.StringCriterion -> when (criterion.field) {
             FilterCriterion.StringField.EVENT_NAME ->
                 matchesOp(event.summary, criterion.op, criterion.value)
+            FilterCriterion.StringField.LOCATION ->
+                matchesOp(event.location, criterion.op, criterion.value)
             FilterCriterion.StringField.SENDER ->
                 matchesOp(event.organizer, criterion.op, criterion.value)
             FilterCriterion.StringField.ATTENDEES ->

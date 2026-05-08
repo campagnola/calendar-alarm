@@ -59,7 +59,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="Minutes before event"
+        android:hint="Minutes"
         android:visibility="gone"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
         <com.google.android.material.textfield.TextInputEditText
@@ -67,6 +67,22 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="number" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Relative-to selector (start vs end) for advance warning -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/advanceRelativeLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="Relative to"
+        android:visibility="gone"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+        <AutoCompleteTextView
+            android:id="@+id/advanceRelativeDropdown"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="none" />
     </com.google.android.material.textfield.TextInputLayout>
 
 </LinearLayout>

@@ -12,13 +12,9 @@ class AlarmService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i("CalAlarm", "AlarmService onStartCommand")
-        val summary    = intent?.getStringExtra("summary")     ?: "Event"
-        val startTime  = intent?.getStringExtra("start_time")  ?: ""
-        val uid        = intent?.getStringExtra("uid")         ?: ""
-        val location   = intent?.getStringExtra("location")    ?: ""
-        val meetingUrl = intent?.getStringExtra("meeting_url")
+        val eventsJson = intent?.getStringExtra("events_json") ?: return START_NOT_STICKY
 
-        val notification = NotificationHelper.buildAlarmNotification(this, summary, startTime, uid, location, meetingUrl)
+        val notification = NotificationHelper.buildAlarmNotification(this, eventsJson)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NotificationHelper.ALARM_NOTIF_ID, notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)

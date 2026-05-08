@@ -39,7 +39,7 @@ data class EventFilter(
 
 sealed class FilterCriterion {
     enum class StringField(val display: String) {
-        EVENT_NAME("Event name"), SENDER("Sender"), ATTENDEES("Attendees")
+        EVENT_NAME("Event name"), LOCATION("Location"), SENDER("Sender"), ATTENDEES("Attendees")
     }
     enum class StringOp(val display: String) {
         CONTAINS("contains"), NOT_CONTAINS("does not contain"),
@@ -72,12 +72,13 @@ sealed class FilterCriterion {
 sealed class FilterAction {
     data class VisibilityAction(val show: Boolean)    : FilterAction()
     data class AlarmAction(val enable: Boolean)       : FilterAction()
-    data class AdvanceAction(val minutes: Int)        : FilterAction()
+    data class AdvanceAction(val minutes: Int, val relativeToEnd: Boolean = false) : FilterAction()
 
     fun toJson(): JSONObject = when (this) {
         is VisibilityAction -> JSONObject().put("type", "visibility").put("show", show)
         is AlarmAction      -> JSONObject().put("type", "alarm").put("enable", enable)
         is AdvanceAction    -> JSONObject().put("type", "advance").put("minutes", minutes)
+                                          .put("relativeToEnd", relativeToEnd)
     }
 
     companion object {
@@ -85,7 +86,8 @@ sealed class FilterAction {
             when (json.getString("type")) {
                 "visibility" -> VisibilityAction(json.getBoolean("show"))
                 "alarm"      -> AlarmAction(json.getBoolean("enable"))
-                "advance"    -> AdvanceAction(json.getInt("minutes"))
+                "advance"    -> AdvanceAction(json.getInt("minutes"),
+                                              json.optBoolean("relativeToEnd", false))
                 else         -> null
             }
         }.getOrNull()
