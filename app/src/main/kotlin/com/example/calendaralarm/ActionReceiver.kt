@@ -19,10 +19,10 @@ class ActionReceiver : BroadcastReceiver() {
             ACTION_SNOOZE -> {
                 val prefs      = Prefs(context)
                 val eventsJson = intent.getStringExtra("events_json") ?: return
-                val maxEndMs   = AlarmScheduler.maxEndTimeMsFromJson(eventsJson)
+                val maxStartMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
                 AlarmScheduler.scheduleSnooze(
                     context,
-                    AlarmScheduler.computeSnoozeUntilMs(maxEndMs, prefs),
+                    AlarmScheduler.computeSnoozeUntilMs(maxStartMs, prefs),
                     eventsJson
                 )
             }

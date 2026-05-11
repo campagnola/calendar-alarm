@@ -36,7 +36,7 @@ class AlarmActivity : AppCompatActivity() {
         val first = arr.getJSONObject(0)
 
         val startTime    = first.getString("start_time")
-        val maxEndTimeMs = AlarmScheduler.maxEndTimeMsFromJson(eventsJson)
+        val maxStartTimeMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
 
         // Title: single summary or "N events"
         val titleText = if (count == 1) first.getString("summary")
@@ -87,7 +87,7 @@ class AlarmActivity : AppCompatActivity() {
         }
 
         val prefs = Prefs(this)
-        val snoozeUntilMs = AlarmScheduler.computeSnoozeUntilMs(maxEndTimeMs, prefs)
+        val snoozeUntilMs = AlarmScheduler.computeSnoozeUntilMs(maxStartTimeMs, prefs)
         val snoozeUntilTime = java.time.Instant.ofEpochMilli(snoozeUntilMs)
             .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
         val snoozeButton = findViewById<Button>(R.id.snoozeButton)

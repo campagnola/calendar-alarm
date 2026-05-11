@@ -3,6 +3,7 @@ package com.example.calendaralarm
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.TextPaint
 import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
@@ -66,6 +67,9 @@ class EventDetailActivity : AppCompatActivity() {
         if (event.location.isNotEmpty()) {
             binding.detailLocation.text = event.location
             binding.detailLocation.visibility = View.VISIBLE
+            binding.detailLocation.setTextColor(themeColor(android.R.attr.colorAccent))
+            binding.detailLocation.paintFlags = binding.detailLocation.paintFlags or TextPaint.UNDERLINE_TEXT_FLAG
+            binding.detailLocation.setOnClickListener { openLocationInMaps(event.location) }
         }
 
         val meetingUrl = event.meetingUrl
@@ -104,6 +108,19 @@ class EventDetailActivity : AppCompatActivity() {
                 binding.detailAttendeesContainer.addView(tv)
             }
         }
+    }
+
+    private fun openLocationInMaps(location: String) {
+        val encodedLocation = Uri.encode(location)
+        val geoIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encodedLocation"))
+        val mapsIntent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.google.com/maps/search/?api=1&query=$encodedLocation")
+        )
+
+        startActivity(
+            if (geoIntent.resolveActivity(packageManager) != null) geoIntent else mapsIntent
+        )
     }
 
     // ── Filter matching ───────────────────────────────────────────────────────

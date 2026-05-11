@@ -26,19 +26,21 @@ object AlarmScheduler {
         } catch (_: SecurityException) {}
     }
 
-    fun computeSnoozeUntilMs(endTimeMs: Long, prefs: Prefs): Long {
+    fun computeSnoozeUntilMs(eventTimeMs: Long, prefs: Prefs): Long {
         val now   = System.currentTimeMillis()
         val minMs = prefs.snoozeMinutes * 60_000L
-        return now + if (endTimeMs > now) maxOf((endTimeMs - now) * 3 / 4, minMs) else minMs
+        return now + if (eventTimeMs > now) maxOf((eventTimeMs - now) * 3 / 4, minMs) else minMs
     }
 
     fun buildEventsJson(context: Context, events: List<CalendarEvent>): String {
         val arr = JSONArray()
         val fmt = timeFormatter(context)
         for (ev in events) {
+            val startMs = ev.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             arr.put(JSONObject().apply {
                 put("summary",    ev.summary)
                 put("start_time", ev.start.format(fmt))
+                put("start_time_ms", startMs)
                 put("uid",        ev.uid)
                 put("location",   ev.location)
                 ev.meetingUrl?.let { put("meeting_url", it) }
@@ -51,6 +53,11 @@ object AlarmScheduler {
     fun maxEndTimeMsFromJson(eventsJson: String): Long = runCatching {
         val arr = JSONArray(eventsJson)
         (0 until arr.length()).maxOf { arr.getJSONObject(it).getLong("end_time_ms") }
+    }.getOrDefault(0L)
+
+    fun maxStartTimeMsFromJson(eventsJson: String): Long = runCatching {
+        val arr = JSONArray(eventsJson)
+        (0 until arr.length()).maxOf { arr.getJSONObject(it).optLong("start_time_ms", 0L) }
     }.getOrDefault(0L)
 
     fun alarmRequestCode(event: CalendarEvent): Int {

@@ -4,8 +4,10 @@ import android.content.ContentUris
 import android.content.Context
 import android.provider.CalendarContract
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 object LocalCalendarReader {
 
@@ -91,8 +93,8 @@ object LocalCalendarReader {
                 val isAllDay = cursor.getInt(allDayCol) != 0
                 val desc     = cursor.getString(descCol) ?: ""
 
-                val startDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(beginMs), zone)
-                val endDt   = LocalDateTime.ofInstant(Instant.ofEpochMilli(endMs2), zone)
+                val startDt = eventDateTime(beginMs, isAllDay, zone)
+                val endDt   = eventDateTime(endMs2, isAllDay, zone)
 
                 val calId = cursor.getLong(cursor.getColumnIndex(CalendarContract.Instances.CALENDAR_ID))
                 events.add(CalendarEvent(
@@ -117,4 +119,11 @@ object LocalCalendarReader {
 
     private fun extractMeetingUrl(desc: String): String? =
         zoomRe.find(desc)?.value ?: teamsRe.find(desc)?.value
+
+    private fun eventDateTime(epochMs: Long, isAllDay: Boolean, zone: ZoneId): LocalDateTime =
+        if (isAllDay) {
+            LocalDate.ofInstant(Instant.ofEpochMilli(epochMs), ZoneOffset.UTC).atStartOfDay()
+        } else {
+            LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zone)
+        }
 }

@@ -60,7 +60,7 @@ object NotificationHelper {
         val firstUid     = first.getString("uid")
         val firstLoc     = first.optString("location", "")
         val firstUrl     = first.optString("meeting_url", "").takeIf { it.isNotEmpty() }
-        val maxEndTimeMs = AlarmScheduler.maxEndTimeMsFromJson(eventsJson)
+        val maxStartTimeMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
 
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val base  = firstUid.hashCode()
@@ -82,7 +82,7 @@ object NotificationHelper {
                 putExtra("events_json", eventsJson)
             }, flags)
 
-        val snoozeUntilMs   = AlarmScheduler.computeSnoozeUntilMs(maxEndTimeMs, Prefs(context))
+        val snoozeUntilMs   = AlarmScheduler.computeSnoozeUntilMs(maxStartTimeMs, Prefs(context))
         val snoozeUntilTime = Instant.ofEpochMilli(snoozeUntilMs)
             .atZone(ZoneId.systemDefault()).toLocalDateTime()
         val snoozeLabel = "Snooze until ${snoozeUntilTime.format(timeFormatter(context))}"
