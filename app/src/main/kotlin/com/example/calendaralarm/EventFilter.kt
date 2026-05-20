@@ -70,15 +70,23 @@ sealed class FilterCriterion {
 }
 
 sealed class FilterAction {
+    enum class QuietHoursMode(val display: String) {
+        SILENT("Silent - notify without sound or vibration"),
+        EARLY("Early - alarm at start of quiet hours"),
+        ALARM("Alarm - ignore quiet hours")
+    }
+
     data class VisibilityAction(val show: Boolean)    : FilterAction()
     data class AlarmAction(val enable: Boolean)       : FilterAction()
     data class AdvanceAction(val minutes: Int, val relativeToEnd: Boolean = false) : FilterAction()
+    data class QuietHoursAction(val mode: QuietHoursMode) : FilterAction()
 
     fun toJson(): JSONObject = when (this) {
         is VisibilityAction -> JSONObject().put("type", "visibility").put("show", show)
         is AlarmAction      -> JSONObject().put("type", "alarm").put("enable", enable)
         is AdvanceAction    -> JSONObject().put("type", "advance").put("minutes", minutes)
                                           .put("relativeToEnd", relativeToEnd)
+        is QuietHoursAction -> JSONObject().put("type", "quiet_hours").put("mode", mode.name)
     }
 
     companion object {
@@ -88,6 +96,9 @@ sealed class FilterAction {
                 "alarm"      -> AlarmAction(json.getBoolean("enable"))
                 "advance"    -> AdvanceAction(json.getInt("minutes"),
                                               json.optBoolean("relativeToEnd", false))
+                "quiet_hours" -> QuietHoursAction(
+                    QuietHoursMode.valueOf(json.getString("mode"))
+                )
                 else         -> null
             }
         }.getOrNull()

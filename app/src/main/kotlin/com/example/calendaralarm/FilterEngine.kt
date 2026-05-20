@@ -6,7 +6,8 @@ object FilterEngine {
         val alarmEnabled: Boolean = true,
         val visible: Boolean = true,
         val advanceMinutes: Int? = null,         // null = use global default
-        val advanceRelativeToEnd: Boolean = false
+        val advanceRelativeToEnd: Boolean = false,
+        val quietHoursMode: FilterAction.QuietHoursMode? = null
     )
 
     /** Evaluate all filters against an event; later filters override earlier ones. */
@@ -15,6 +16,7 @@ object FilterEngine {
         var visible             = true
         var advanceMin: Int?    = null
         var relativeToEnd       = false
+        var quietHoursMode: FilterAction.QuietHoursMode? = null
         for (filter in filters) {
             if (matches(event, filter.criteria)) {
                 for (action in filter.actions) when (action) {
@@ -24,10 +26,11 @@ object FilterEngine {
                         advanceMin    = action.minutes
                         relativeToEnd = action.relativeToEnd
                     }
+                    is FilterAction.QuietHoursAction -> quietHoursMode = action.mode
                 }
             }
         }
-        return EventFlags(alarmEnabled, visible, advanceMin, relativeToEnd)
+        return EventFlags(alarmEnabled, visible, advanceMin, relativeToEnd, quietHoursMode)
     }
 
     /** True if the event satisfies all criteria (empty list = matches everything). */

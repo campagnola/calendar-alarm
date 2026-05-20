@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.app.NotificationManager
 
 class ActionReceiver : BroadcastReceiver() {
     companion object {
@@ -14,6 +15,8 @@ class ActionReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         context.stopService(Intent(context, AlarmService::class.java))
+        context.getSystemService(NotificationManager::class.java)
+            .cancel(NotificationHelper.ALARM_NOTIF_ID)
 
         when (intent.action) {
             ACTION_SNOOZE -> {

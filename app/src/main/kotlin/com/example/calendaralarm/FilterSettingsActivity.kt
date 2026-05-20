@@ -19,9 +19,10 @@ class FilterSettingsActivity : AppCompatActivity() {
 
         private val CRITERION_TYPES  = listOf("Source calendar", "Event name", "Location", "Sender", "Attendees")
         private val STRING_OPS       = FilterCriterion.StringOp.values().map { it.display }
-        private val ACTION_TYPES     = listOf("Visibility", "Alarm", "Advance warning")
+        private val ACTION_TYPES     = listOf("Visibility", "Alarm", "Advance warning", "Quiet hours")
         private val VISIBILITY_OPTS  = listOf("Show", "Hide")
         private val ALARM_OPTS       = listOf("Enable", "Disable")
+        private val QUIET_HOURS_OPTS = FilterAction.QuietHoursMode.values().map { it.display }
         private val RELATIVE_TO_OPTS = listOf("before event start", "before event end")
     }
 
@@ -183,6 +184,11 @@ class FilterSettingsActivity : AppCompatActivity() {
                     b.advanceLayout.visibility = View.VISIBLE
                     b.advanceRelativeLayout.visibility = View.VISIBLE
                 }
+                3 -> {
+                    b.toggleDropdown.setAdapter(
+                        ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, QUIET_HOURS_OPTS))
+                    b.toggleLayout.visibility = View.VISIBLE
+                }
             }
         }
 
@@ -209,6 +215,11 @@ class FilterSettingsActivity : AppCompatActivity() {
                 b.advanceRelativeDropdown.setText(
                     if (action.relativeToEnd) RELATIVE_TO_OPTS[1] else RELATIVE_TO_OPTS[0], false)
             }
+            is FilterAction.QuietHoursAction -> {
+                b.actionTypeDropdown.setText(ACTION_TYPES[3], false)
+                showForActionType(3)
+                b.toggleDropdown.setText(action.mode.display, false)
+            }
             null -> {
                 b.actionTypeDropdown.setText(ACTION_TYPES[0], false)
                 showForActionType(0)
@@ -233,6 +244,12 @@ class FilterSettingsActivity : AppCompatActivity() {
                 2 -> result.add(FilterAction.AdvanceAction(
                         b.advanceInput.text.toString().toIntOrNull() ?: 5,
                         b.advanceRelativeDropdown.text.toString() == RELATIVE_TO_OPTS[1]))
+                3 -> {
+                    val modeIdx = QUIET_HOURS_OPTS.indexOf(b.toggleDropdown.text.toString())
+                    val mode = FilterAction.QuietHoursMode.values()
+                        .getOrElse(modeIdx) { FilterAction.QuietHoursMode.SILENT }
+                    result.add(FilterAction.QuietHoursAction(mode))
+                }
             }
         }
         return result

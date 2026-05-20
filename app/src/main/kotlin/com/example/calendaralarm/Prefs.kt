@@ -49,7 +49,7 @@ class Prefs(context: Context) {
 
     // Whether to fire a consolidated notification at the start of quiet hours.
     var quietHoursAlarmEnabled: Boolean
-        get() = p.getBoolean("quiet_alarm_enabled", false)
+        get() = p.getBoolean("quiet_alarm_enabled", true)
         set(v) = p.edit().putBoolean("quiet_alarm_enabled", v).apply()
 
     var lastPollTime: Long

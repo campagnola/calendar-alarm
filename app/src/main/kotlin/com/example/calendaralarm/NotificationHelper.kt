@@ -50,7 +50,12 @@ object NotificationHelper {
         nm.notify(QUIET_HOURS_NOTIF_ID, notif)
     }
 
-    fun buildAlarmNotification(context: Context, eventsJson: String): Notification {
+    fun showSilentAlarmNotification(context: Context, eventsJson: String) {
+        val nm = context.getSystemService(NotificationManager::class.java)
+        nm.notify(ALARM_NOTIF_ID, buildAlarmNotification(context, eventsJson, silent = true))
+    }
+
+    fun buildAlarmNotification(context: Context, eventsJson: String, silent: Boolean = false): Notification {
         val arr    = JSONArray(eventsJson)
         val count  = arr.length()
         val first  = arr.getJSONObject(0)
@@ -97,17 +102,30 @@ object NotificationHelper {
             (0 until count).joinToString("\n") { arr.getJSONObject(it).getString("summary") }
         }
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ALARM)
+        val builder = NotificationCompat.Builder(
+            context,
+            if (silent) CHANNEL_REMINDER else CHANNEL_ALARM
+        )
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setFullScreenIntent(fullScreenPi, true)
             .setContentIntent(fullScreenPi)
             .addAction(0, "Dismiss", dismissPi)
             .addAction(0, snoozeLabel, snoozePi)
+
+        if (silent) {
+            builder
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setCategory(NotificationCompat.CATEGORY_EVENT)
+                .setSilent(true)
+        } else {
+            builder
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(fullScreenPi, true)
+        }
 
         if (count > 1) {
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
