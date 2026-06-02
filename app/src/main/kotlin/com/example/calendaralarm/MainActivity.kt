@@ -143,7 +143,9 @@ class MainActivity : AppCompatActivity() {
                 val allEvents = parsedPerSource.flatMap { it.second } + localEvents
 
                 val filters    = prefs.eventFilters
-                val eventFlags = allEvents.associateWith { FilterEngine.evaluate(it, filters) }
+                prefs.pruneStaleEventPreferences(now)
+                prefs.updateEventPreferenceLastSeen(allEvents)
+                val eventFlags = effectiveEventFlags(allEvents, filters)
 
                 for (filter in filters) {
                     prefs.setFilterMatchCount(filter.id,
@@ -195,6 +197,25 @@ class MainActivity : AppCompatActivity() {
         prefs.activeAlarmCodes = AlarmScheduler.scheduleAll(this, events, flags, prefs)
     }
 
+    private fun effectiveEventFlags(
+        events: List<CalendarEvent>,
+        filters: List<EventFilter>
+    ): Map<CalendarEvent, FilterEngine.EventFlags> {
+        val prefByKey = prefs.eventPreferences.associateBy { it.key }
+        return events.associateWith { event ->
+            var flags = FilterEngine.evaluate(event, filters)
+            if (event.isSeries) {
+                prefByKey[EventPreference.seriesKey(event)]?.alarmEnabled?.let {
+                    flags = flags.copy(alarmEnabled = it)
+                }
+            }
+            prefByKey[EventPreference.eventKey(event)]?.alarmEnabled?.let {
+                flags = flags.copy(alarmEnabled = it)
+            }
+            flags
+        }
+    }
+
     // ── View helpers ──────────────────────────────────────────────────────────
 
     private fun addDayHeader(text: String) {
@@ -228,8 +249,10 @@ class MainActivity : AppCompatActivity() {
         view.findViewById<TextView>(R.id.eventTime).text = if (event.isAllDay) "All day"
             else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
 
-        view.findViewById<ImageView>(R.id.bellIcon).visibility =
-            if (alarmEnabled) View.VISIBLE else View.GONE
+        val bellIcon = view.findViewById<ImageView>(R.id.bellIcon)
+        bellIcon.visibility = View.VISIBLE
+        bellIcon.alpha = if (alarmEnabled) 1f else 0.3f
+        bellIcon.contentDescription = if (alarmEnabled) "Alarm enabled" else "Alarm disabled"
 
         val locationView = view.findViewById<TextView>(R.id.eventLocation)
         if (event.location.isNotEmpty()) {

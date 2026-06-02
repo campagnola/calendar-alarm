@@ -16,7 +16,8 @@ data class CalendarEvent(
     val sourceId: String = "",
     val organizer: String = "",
     val attendees: List<String> = emptyList(),
-    val description: String = ""
+    val description: String = "",
+    val isSeries: Boolean = false
 ) {
     fun toJson(): String {
         val obj = org.json.JSONObject().apply {
@@ -30,6 +31,7 @@ data class CalendarEvent(
             meetingUrl?.let { put("meetingUrl", it) }
             put("sourceId", sourceId)
             put("organizer", organizer)
+            put("isSeries", isSeries)
             val arr = org.json.JSONArray()
             attendees.forEach { arr.put(it) }
             put("attendees", arr)
@@ -52,7 +54,8 @@ data class CalendarEvent(
                 meetingUrl  = obj.optString("meetingUrl", "").takeIf { it.isNotEmpty() },
                 sourceId    = obj.optString("sourceId", ""),
                 organizer   = obj.optString("organizer", ""),
-                attendees   = (0 until attendeesArr.length()).map { attendeesArr.getString(it) }
+                attendees   = (0 until attendeesArr.length()).map { attendeesArr.getString(it) },
+                isSeries    = obj.optBoolean("isSeries", false)
             )
         }
     }
@@ -133,7 +136,7 @@ object IcsParser {
                 for (occ in expandRrule(rrule, dtStart, excludeTimes, windowStart, windowEnd))
                     result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay,
                         raw.location, extractMeetingUrl(raw.location, raw.description),
-                        sourceId, raw.organizer, raw.attendees.toList(), raw.description))
+                        sourceId, raw.organizer, raw.attendees.toList(), raw.description, isSeries = true))
             }
 
             // Include modified instances that fall in the window
@@ -148,7 +151,7 @@ object IcsParser {
                         extractMeetingUrl(ov.location.ifEmpty { raw.location }, ovDesc),
                         sourceId,
                         ov.organizer.ifEmpty { raw.organizer },
-                        ov.attendees.ifEmpty { raw.attendees }.toList(), ovDesc))
+                        ov.attendees.ifEmpty { raw.attendees }.toList(), ovDesc, isSeries = rrule != null))
             }
         }
 

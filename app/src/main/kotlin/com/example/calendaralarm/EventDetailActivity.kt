@@ -39,6 +39,7 @@ class EventDetailActivity : AppCompatActivity() {
 
         populateEventDetails()
         populateFilters()
+        populateAlarmPreferences()
 
         binding.addFilterButton.setOnClickListener {
             if (binding.filterCreatePanel.visibility == View.GONE) {
@@ -121,6 +122,57 @@ class EventDetailActivity : AppCompatActivity() {
         startActivity(
             if (geoIntent.resolveActivity(packageManager) != null) geoIntent else mapsIntent
         )
+    }
+
+    // ── Alarm preferences ────────────────────────────────────────────────────
+
+    private fun populateAlarmPreferences() {
+        binding.disableSeriesAlarmButton.visibility = if (event.isSeries) View.VISIBLE else View.GONE
+        binding.enableSeriesAlarmButton.visibility = if (event.isSeries) View.VISIBLE else View.GONE
+        updateAlarmPreferenceStatus()
+
+        binding.disableEventAlarmButton.setOnClickListener {
+            saveAlarmPreference(EventPreference.Scope.EVENT, false)
+        }
+        binding.enableEventAlarmButton.setOnClickListener {
+            saveAlarmPreference(EventPreference.Scope.EVENT, true)
+        }
+        binding.disableSeriesAlarmButton.setOnClickListener {
+            saveAlarmPreference(EventPreference.Scope.SERIES, false)
+        }
+        binding.enableSeriesAlarmButton.setOnClickListener {
+            saveAlarmPreference(EventPreference.Scope.SERIES, true)
+        }
+    }
+
+    private fun updateAlarmPreferenceStatus() {
+        val prefsByKey = prefs.eventPreferences.associateBy { it.key }
+        val eventPref = prefsByKey[EventPreference.eventKey(event)]?.alarmEnabled
+        val seriesPref = if (event.isSeries) {
+            prefsByKey[EventPreference.seriesKey(event)]?.alarmEnabled
+        } else {
+            null
+        }
+
+        binding.alarmPreferenceStatus.text = when {
+            eventPref == true -> "Alarm enabled for this event."
+            eventPref == false -> "Alarm disabled for this event."
+            seriesPref == true -> "Alarm enabled for this series."
+            seriesPref == false -> "Alarm disabled for this series."
+            else -> "Using filter and default alarm settings."
+        }
+    }
+
+    private fun saveAlarmPreference(scope: EventPreference.Scope, alarmEnabled: Boolean) {
+        val key = when (scope) {
+            EventPreference.Scope.EVENT -> EventPreference.eventKey(event)
+            EventPreference.Scope.SERIES -> EventPreference.seriesKey(event)
+        }
+        val endMs = event.end.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        prefs.saveEventPreference(EventPreference(key, scope, alarmEnabled, endMs))
+        AlarmScheduler.schedulePoll(this, 0L)
+        updateAlarmPreferenceStatus()
+        Toast.makeText(this, "Alarm preference saved", Toast.LENGTH_SHORT).show()
     }
 
     // ── Filter matching ───────────────────────────────────────────────────────

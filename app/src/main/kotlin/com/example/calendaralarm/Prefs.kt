@@ -3,6 +3,8 @@ package com.example.calendaralarm
 import android.content.Context
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 class Prefs(context: Context) {
     private val p = context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE)
@@ -146,6 +148,66 @@ class Prefs(context: Context) {
         p.getString("filter_data_$filterId", null)?.let { json ->
             runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
         }
+
+    // ── Per-event preferences ────────────────────────────────────────────────
+
+    var eventPreferences: List<EventPreference>
+        get() {
+            val ids = p.getString("event_pref_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
+                ?: return emptyList()
+            return ids.mapNotNull { key ->
+                p.getString("event_pref_$key", null)?.let { json ->
+                    runCatching { EventPreference.fromJson(JSONObject(json)) }.getOrNull()
+                }
+            }
+        }
+        set(v) {
+            val edit = p.edit()
+            val oldIds = p.getString("event_pref_ids", null)?.split('\n')?.filter { it.isNotEmpty() } ?: emptyList()
+            val newIds = v.map { it.key }
+            edit.putString("event_pref_ids", newIds.joinToString("\n"))
+            v.forEach { edit.putString("event_pref_${it.key}", it.toJson().toString()) }
+            oldIds.filterNot { it in newIds }.forEach { edit.remove("event_pref_$it") }
+            edit.apply()
+        }
+
+    fun saveEventPreference(pref: EventPreference) {
+        val prefs = eventPreferences.associateBy { it.key }.toMutableMap()
+        prefs[pref.key] = pref
+        eventPreferences = prefs.values.sortedBy { it.key }
+        lastAlarmScheduleTs = 0L
+    }
+
+    fun updateEventPreferenceLastSeen(events: List<CalendarEvent>) {
+        val stored = eventPreferences.associateBy { it.key }.toMutableMap()
+        var changed = false
+        for (event in events) {
+            val endMs = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val eventKey = EventPreference.eventKey(event)
+            stored[eventKey]?.let {
+                if (endMs > it.lastSeenEndMs) {
+                    stored[eventKey] = it.copy(lastSeenEndMs = endMs)
+                    changed = true
+                }
+            }
+            if (event.isSeries) {
+                val seriesKey = EventPreference.seriesKey(event)
+                stored[seriesKey]?.let {
+                    if (endMs > it.lastSeenEndMs) {
+                        stored[seriesKey] = it.copy(lastSeenEndMs = endMs)
+                        changed = true
+                    }
+                }
+            }
+        }
+        if (changed) eventPreferences = stored.values.sortedBy { it.key }
+    }
+
+    fun pruneStaleEventPreferences(now: LocalDateTime = LocalDateTime.now()) {
+        val cutoffMs = now.minusDays(7).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val kept = eventPreferences.filter { it.lastSeenEndMs == 0L || it.lastSeenEndMs >= cutoffMs }
+        if (kept.size != eventPreferences.size) eventPreferences = kept
+    }
 
     // ── Local device calendar source ───────────────────────────────────────────
 

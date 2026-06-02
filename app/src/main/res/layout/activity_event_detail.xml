@@ -139,6 +139,55 @@
             android:layout_marginTop="12dp"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
+        <!-- ── Alarm preferences ────────────────────────────── -->
+
+        <TextView
+            android:id="@+id/alarmPreferenceHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Alarm"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:layout_marginTop="18dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/alarmPreferenceStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/disableEventAlarmButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Disable alarm for this event"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/disableSeriesAlarmButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Disable alarm for all events in the series"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/enableEventAlarmButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable alarm for this event"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/enableSeriesAlarmButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Enable alarm for all events in the series"
+            android:visibility="gone"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
         <!-- ── Filter creation panel ─────────────────────────── -->
 
         <LinearLayout

@@ -64,7 +64,8 @@ object LocalCalendarReader {
             CalendarContract.Instances.ORGANIZER,
             CalendarContract.Instances.DESCRIPTION,
             CalendarContract.Instances.UID_2445,
-            CalendarContract.Instances.CALENDAR_ID
+            CalendarContract.Instances.CALENDAR_ID,
+            CalendarContract.Events.RRULE
         )
 
         val idList    = calendarIds.joinToString(",")
@@ -83,6 +84,7 @@ object LocalCalendarReader {
             val orgCol      = cursor.getColumnIndex(CalendarContract.Instances.ORGANIZER)
             val descCol     = cursor.getColumnIndex(CalendarContract.Instances.DESCRIPTION)
             val uidCol      = cursor.getColumnIndex(CalendarContract.Instances.UID_2445)
+            val rruleCol    = cursor.getColumnIndex(CalendarContract.Events.RRULE)
 
             while (cursor.moveToNext()) {
                 val eventId  = cursor.getLong(eventIdCol)
@@ -92,6 +94,7 @@ object LocalCalendarReader {
                 val endMs2   = cursor.getLong(endCol)
                 val isAllDay = cursor.getInt(allDayCol) != 0
                 val desc     = cursor.getString(descCol) ?: ""
+                val isSeries = rruleCol >= 0 && !cursor.getString(rruleCol).isNullOrEmpty()
 
                 val startDt = eventDateTime(beginMs, isAllDay, zone)
                 val endDt   = eventDateTime(endMs2, isAllDay, zone)
@@ -107,7 +110,8 @@ object LocalCalendarReader {
                     organizer   = cursor.getString(orgCol)?.removePrefix("mailto:") ?: "",
                     meetingUrl  = extractMeetingUrl(desc),
                     sourceId    = "local_$calId",
-                    description = desc
+                    description = desc,
+                    isSeries    = isSeries
                 ))
             }
         }

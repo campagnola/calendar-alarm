@@ -21,14 +21,15 @@ class PollReceiver : BroadcastReceiver() {
         Log.i("CalAlarm", "PollReceiver: polling ${prefs.icsSources.size} source(s)")
 
         val sources = IcsFetcher.fetchAll(context, forceDownload = true)
-        if (sources.isEmpty()) {
+        val hasLocalCalendars = prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()
+        if (sources.isEmpty() && !hasLocalCalendars) {
             Log.w("CalAlarm", "PollReceiver: no ICS data available")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return
         }
 
-        val maxCacheTs = sources.maxOf { it.cacheTimestamp }
-        if (maxCacheTs <= prefs.lastAlarmScheduleTs) {
+        val maxCacheTs = sources.maxOfOrNull { it.cacheTimestamp } ?: System.currentTimeMillis()
+        if (!hasLocalCalendars && maxCacheTs <= prefs.lastAlarmScheduleTs) {
             Log.i("CalAlarm", "PollReceiver: all caches unchanged, skipping reschedule")
             AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
             return
@@ -56,7 +57,21 @@ class PollReceiver : BroadcastReceiver() {
         val events = parsedPerSource.flatMap { it.second } + localEvents
 
         val filters    = prefs.eventFilters
-        val eventFlags = events.associateWith { FilterEngine.evaluate(it, filters) }
+        prefs.pruneStaleEventPreferences(nowDt)
+        prefs.updateEventPreferenceLastSeen(events)
+        val eventPrefs = prefs.eventPreferences.associateBy { it.key }
+        val eventFlags = events.associateWith { event ->
+            var flags = FilterEngine.evaluate(event, filters)
+            if (event.isSeries) {
+                eventPrefs[EventPreference.seriesKey(event)]?.alarmEnabled?.let {
+                    flags = flags.copy(alarmEnabled = it)
+                }
+            }
+            eventPrefs[EventPreference.eventKey(event)]?.alarmEnabled?.let {
+                flags = flags.copy(alarmEnabled = it)
+            }
+            flags
+        }
 
         for (filter in filters) {
             prefs.setFilterMatchCount(filter.id,
