@@ -355,8 +355,14 @@ object IcsParser {
             v.endsWith('Z') ->
                 Pair(LocalDateTime.parse(v.dropLast(1), dtFmt)
                     .atZone(ZoneOffset.UTC).withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime(), false)
-            else ->
-                Pair(LocalDateTime.parse(v.take(15), dtFmt), false)
+            else -> {
+                val ldt = LocalDateTime.parse(v.take(15), dtFmt)
+                val tzid = Regex("TZID=([^;:]+)", RegexOption.IGNORE_CASE).find(key)?.groupValues?.get(1)
+                val converted = tzid?.let { runCatching { ZoneId.of(it) }.getOrNull() }
+                    ?.let { zone -> ldt.atZone(zone).withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime() }
+                    ?: ldt
+                Pair(converted, false)
+            }
         }
     }.getOrNull()
 

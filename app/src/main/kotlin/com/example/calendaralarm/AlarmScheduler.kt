@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import java.time.LocalDateTime
 import java.time.ZoneId
 import org.json.JSONArray
 import org.json.JSONObject
@@ -158,27 +157,6 @@ object AlarmScheduler {
         legacyPi.cancel()
     }
 
-    private data class TriggerKey(val triggerMs: Long, val silent: Boolean)
-
-    private fun isInQuietHours(dt: LocalDateTime, startMin: Int, endMin: Int): Boolean {
-        val minute = dt.hour * 60 + dt.minute
-        return if (endMin > startMin) {
-            minute >= startMin && minute < endMin
-        } else {
-            minute >= startMin || minute < endMin
-        }
-    }
-
-    private fun quietHoursStartFor(dt: LocalDateTime, startMin: Int, endMin: Int): LocalDateTime {
-        val dayStart = dt.toLocalDate().atStartOfDay()
-        val minute = dt.hour * 60 + dt.minute
-        return if (endMin > startMin || minute >= startMin) {
-            dayStart.plusMinutes(startMin.toLong())
-        } else {
-            dayStart.minusDays(1).plusMinutes(startMin.toLong())
-        }
-    }
-
     fun scheduleAll(context: Context, events: List<CalendarEvent>,
                     flags: Map<CalendarEvent, FilterEngine.EventFlags>,
                     prefs: Prefs): Set<Int> {
@@ -188,65 +166,34 @@ object AlarmScheduler {
         val now = System.currentTimeMillis()
         val newCodes = mutableSetOf<Int>()
 
-        // Collect alarms, grouping events that share the same trigger time
-        val byTrigger = linkedMapOf<TriggerKey, MutableList<CalendarEvent>>()
-        val earlyByTrigger = linkedMapOf<Long, MutableList<CalendarEvent>>()
-        val defaultQuietHoursMode = if (prefs.quietHoursAlarmEnabled) {
-            FilterAction.QuietHoursMode.EARLY
-        } else {
-            FilterAction.QuietHoursMode.SILENT
-        }
-        for (event in events) {
-            val ef = flags[event] ?: FilterEngine.EventFlags()
-            if (!ef.alarmEnabled) continue
-            val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val baseMs = if (ef.advanceRelativeToEnd)
-                event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            else startMs
-            val advanceMs = (ef.advanceMinutes ?: prefs.advanceMinutes) * 60_000L
-            val triggerMs = baseMs - advanceMs
+        val planned = planAlarms(
+            events = events,
+            flags = flags,
+            advanceMinutes = prefs.advanceMinutes,
+            quietHoursAlarmEnabled = prefs.quietHoursAlarmEnabled,
+            quietHoursStartMinutes = prefs.quietHoursStartMinutes,
+            quietHoursEndMinutes = prefs.quietHoursEndMinutes,
+            nowMs = now
+        )
 
-            var silent = false
-            if (isInQuietHours(event.start, prefs.quietHoursStartMinutes, prefs.quietHoursEndMinutes)) {
-                when (ef.quietHoursMode ?: defaultQuietHoursMode) {
-                    FilterAction.QuietHoursMode.SILENT -> silent = true
-                    FilterAction.QuietHoursMode.EARLY -> {
-                        val quietStartMs = quietHoursStartFor(
-                            event.start,
-                            prefs.quietHoursStartMinutes,
-                            prefs.quietHoursEndMinutes
-                        ).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                        if (quietStartMs > now) {
-                            earlyByTrigger.getOrPut(quietStartMs) { mutableListOf() }.add(event)
-                            continue
-                        }
-                        silent = true
-                    }
-                    FilterAction.QuietHoursMode.ALARM -> Unit
+        for (alarm in planned) {
+            when {
+                alarm.isQuietHoursAlarm -> {
+                    Log.i("CalAlarm", "scheduleAll: quiet hours alarm for ${alarm.events.size} events")
+                    scheduleQuietHoursAlarm(context, alarm.triggerMs, alarm.events)
+                    newCodes.add(QUIET_HOURS_REQUEST_CODE)
                 }
-            }
-
-            if (triggerMs > now) {
-                byTrigger.getOrPut(TriggerKey(triggerMs, silent)) { mutableListOf() }.add(event)
-            }
-        }
-
-        for ((triggerMs, group) in earlyByTrigger) {
-            Log.i("CalAlarm", "scheduleAll: quiet hours alarm for ${group.size} events")
-            scheduleQuietHoursAlarm(context, triggerMs, group)
-            newCodes.add(QUIET_HOURS_REQUEST_CODE)
-        }
-
-        for ((key, group) in byTrigger) {
-            if (group.size == 1) {
-                val event = group[0]
-                Log.i("CalAlarm", "scheduleAll: '${event.summary}' in ${(key.triggerMs - now) / 1000}s")
-                scheduleGroupAlarm(context, group, key.triggerMs, key.silent)
-                newCodes.add(alarmRequestCode(event))
-            } else {
-                Log.i("CalAlarm", "scheduleAll: group of ${group.size} events in ${(key.triggerMs - now) / 1000}s")
-                scheduleGroupAlarm(context, group, key.triggerMs, key.silent)
-                newCodes.add(groupAlarmRequestCode(group))
+                alarm.events.size == 1 -> {
+                    val event = alarm.events[0]
+                    Log.i("CalAlarm", "scheduleAll: '${event.summary}' in ${(alarm.triggerMs - now) / 1000}s")
+                    scheduleGroupAlarm(context, alarm.events, alarm.triggerMs, alarm.silent)
+                    newCodes.add(alarmRequestCode(event))
+                }
+                else -> {
+                    Log.i("CalAlarm", "scheduleAll: group of ${alarm.events.size} events in ${(alarm.triggerMs - now) / 1000}s")
+                    scheduleGroupAlarm(context, alarm.events, alarm.triggerMs, alarm.silent)
+                    newCodes.add(groupAlarmRequestCode(alarm.events))
+                }
             }
         }
 
