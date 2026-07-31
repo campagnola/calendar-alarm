@@ -20,7 +20,8 @@ fun planAlarms(
     quietHoursAlarmEnabled: Boolean,
     quietHoursStartMinutes: Int,
     quietHoursEndMinutes: Int,
-    nowMs: Long
+    nowMs: Long,
+    raisedAlarmKeys: Set<String> = emptySet()
 ): List<PlannedAlarm> {
     val defaultQuietHoursMode = if (quietHoursAlarmEnabled)
         FilterAction.QuietHoursMode.EARLY else FilterAction.QuietHoursMode.SILENT
@@ -33,9 +34,22 @@ fun planAlarms(
         if (!ef.alarmEnabled) continue
 
         val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val baseMs = if (ef.advanceRelativeToEnd)
-            event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        else startMs
+        val endMs   = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+        // Skip events whose alarm has already been raised this cycle.
+        val eventAlarmKey = "${event.uid}_$startMs"
+        if (eventAlarmKey in raisedAlarmKeys) {
+            AppLog.i("planAlarms: skip '${event.summary}' (already raised)")
+            continue
+        }
+
+        // Skip events that have completely ended — too late to be useful.
+        if (endMs <= nowMs) {
+            AppLog.i("planAlarms: skip '${event.summary}' (event ended)")
+            continue
+        }
+
+        val baseMs = if (ef.advanceRelativeToEnd) endMs else startMs
         val advanceMs = (ef.advanceMinutes ?: advanceMinutes) * 60_000L
         val triggerMs = baseMs - advanceMs
 
@@ -68,9 +82,16 @@ fun planAlarms(
             }
         }
 
-        if (triggerMs > nowMs) {
-            byTrigger.getOrPut(TriggerKey(triggerMs, silent)) { mutableListOf() }.add(event)
+        // If the intended trigger is in the past but the event hasn't ended, fire immediately
+        // rather than dropping the alarm. This covers the race where PollReceiver cancelled a
+        // pending alarm moments before it was due to fire.
+        val effectiveTriggerMs = if (triggerMs > nowMs) {
+            triggerMs
+        } else {
+            AppLog.i("planAlarms: scheduling '${event.summary}' late (trigger was ${(nowMs - triggerMs) / 1000}s ago)")
+            nowMs + 2_000L
         }
+        byTrigger.getOrPut(TriggerKey(effectiveTriggerMs, silent)) { mutableListOf() }.add(event)
     }
 
     val result = mutableListOf<PlannedAlarm>()

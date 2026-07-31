@@ -67,6 +67,26 @@ class Prefs(context: Context) {
                     .mapNotNull { it.toIntOrNull() }.toSet()
         set(v) = p.edit().putStringSet("active_alarm_codes", v.map { it.toString() }.toSet()).apply()
 
+    // Keys of alarms that have already been raised, formatted as "${uid}_${startMs}".
+    var raisedAlarmKeys: Set<String>
+        get() = HashSet(p.getStringSet("raised_alarm_keys", emptySet()) ?: emptySet())
+        set(v) = p.edit().putStringSet("raised_alarm_keys", v).apply()
+
+    fun markAlarmRaised(key: String) {
+        val current = raisedAlarmKeys.toMutableSet()
+        current.add(key)
+        p.edit().putStringSet("raised_alarm_keys", current).apply()
+    }
+
+    fun pruneRaisedAlarmKeys(nowMs: Long = System.currentTimeMillis()) {
+        val cutoffMs = nowMs - 2 * 24 * 60 * 60 * 1000L
+        val pruned = raisedAlarmKeys.filter { key ->
+            val startMs = key.substringAfterLast('_').toLongOrNull() ?: return@filter false
+            startMs >= cutoffMs
+        }.toSet()
+        if (pruned.size != raisedAlarmKeys.size) raisedAlarmKeys = pruned
+    }
+
     // ── Per-URL metadata (keyed by urlId = first 8 hex chars of MD5(url)) ────
 
     fun urlId(url: String): String =
