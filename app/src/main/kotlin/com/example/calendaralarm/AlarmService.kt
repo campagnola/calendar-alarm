@@ -18,6 +18,7 @@ class AlarmService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i("CalAlarm", "AlarmService onStartCommand")
         eventsJson = intent?.getStringExtra("events_json") ?: return START_NOT_STICKY
+        Prefs(this).activeAlarmJson = eventsJson
 
         val notification = NotificationHelper.buildAlarmNotification(this, eventsJson!!)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -47,7 +48,11 @@ class AlarmService : Service() {
                 )
             }
         }
-        registerReceiver(screenOnReceiver, IntentFilter(Intent.ACTION_SCREEN_ON))
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        registerReceiver(screenOnReceiver, filter)
     }
 
     private fun startVibration() {
@@ -63,6 +68,7 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
+        Prefs(this).activeAlarmJson = null
         vibrator?.cancel()
         screenOnReceiver?.let { unregisterReceiver(it) }
         screenOnReceiver = null

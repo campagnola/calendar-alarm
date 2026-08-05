@@ -73,7 +73,8 @@ object AlarmScheduler {
 
     fun alarmKey(event: CalendarEvent): String {
         val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        return "${event.uid}_$startMs"
+        val endMs   = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        return "${event.uid}_${startMs}_${endMs}"
     }
 
     fun scheduleEventAlarm(context: Context, event: CalendarEvent, triggerAtMs: Long) {

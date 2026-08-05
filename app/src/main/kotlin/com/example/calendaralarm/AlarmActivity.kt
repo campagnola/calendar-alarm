@@ -4,6 +4,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -69,6 +72,7 @@ class AlarmActivity : AppCompatActivity() {
             joinButton.text = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
             joinButton.visibility = View.VISIBLE
             joinButton.setOnClickListener {
+                Prefs(this).activeAlarmJson = null
                 sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
                     action = ActionReceiver.ACTION_JOIN
                     putExtra("meeting_url", meetingUrl)
@@ -80,6 +84,7 @@ class AlarmActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.dismissButton).setOnClickListener {
+            Prefs(this).activeAlarmJson = null
             sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
                 action = ActionReceiver.ACTION_DISMISS
             })
@@ -93,11 +98,25 @@ class AlarmActivity : AppCompatActivity() {
         val snoozeButton = findViewById<Button>(R.id.snoozeButton)
         snoozeButton.text = "Snooze until ${snoozeUntilTime.format(timeFormatter(this))}"
         snoozeButton.setOnClickListener {
+            Prefs(this).activeAlarmJson = null
             sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
                 action = ActionReceiver.ACTION_SNOOZE
                 putExtra("events_json", eventsJson)
             })
             finish()
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java).defaultVibrator.cancel()
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Vibrator::class.java).cancel()
+            }
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }

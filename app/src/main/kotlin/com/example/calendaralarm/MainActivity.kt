@@ -1,6 +1,7 @@
 package com.example.calendaralarm
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -8,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
@@ -51,11 +53,20 @@ class MainActivity : AppCompatActivity() {
 
         NotificationHelper.createChannels(this)
         requestNotificationPermissionIfNeeded()
+        requestFullScreenIntentPermissionIfNeeded()
         loadSchedule()
     }
 
     override fun onResume() {
         super.onResume()
+        val activeAlarm = prefs.activeAlarmJson
+        if (activeAlarm != null) {
+            startActivity(Intent(this, AlarmActivity::class.java).apply {
+                putExtra("events_json", activeAlarm)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            })
+            return
+        }
         loadSchedule()
         handler.postDelayed(minuteRefreshRunnable, 60_000L)
     }
@@ -283,6 +294,24 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+    }
+
+    private fun requestFullScreenIntentPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            if (!nm.canUseFullScreenIntent()) {
+                AlertDialog.Builder(this)
+                    .setTitle("Lock-screen alarm permission needed")
+                    .setMessage("To show alarm alerts when your phone is locked, grant this app the 'Display over lock screen' permission in Settings.")
+                    .setPositiveButton("Open Settings") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                            data = Uri.parse("package:$packageName")
+                        })
+                    }
+                    .setNegativeButton("Not now", null)
+                    .show()
+            }
         }
     }
 }

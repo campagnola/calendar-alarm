@@ -37,7 +37,7 @@ fun planAlarms(
         val endMs   = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
         // Skip events whose alarm has already been raised this cycle.
-        val eventAlarmKey = "${event.uid}_$startMs"
+        val eventAlarmKey = "${event.uid}_${startMs}_${endMs}"
         if (eventAlarmKey in raisedAlarmKeys) {
             AppLog.i("planAlarms: skip '${event.summary}' (already raised)")
             continue

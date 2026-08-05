@@ -42,7 +42,7 @@ class AlarmReceiver : BroadcastReceiver() {
             val keys = mutableListOf<String>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val key = "${obj.getString("uid")}_${obj.getLong("start_time_ms")}"
+                val key = "${obj.getString("uid")}_${obj.getLong("start_time_ms")}_${obj.getLong("end_time_ms")}"
                 keys.add(key)
                 prefs.markAlarmRaised(key)
             }

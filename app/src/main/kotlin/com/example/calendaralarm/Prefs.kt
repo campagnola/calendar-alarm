@@ -62,6 +62,14 @@ class Prefs(context: Context) {
         get() = p.getLong("last_alarm_schedule_ts", 0L)
         set(v) = p.edit().putLong("last_alarm_schedule_ts", v).apply()
 
+    // Non-null while AlarmService is running; used to redirect MainActivity to AlarmActivity.
+    var activeAlarmJson: String?
+        get() = p.getString("active_alarm_json", null)
+        set(value) {
+            if (value != null) p.edit().putString("active_alarm_json", value).apply()
+            else p.edit().remove("active_alarm_json").apply()
+        }
+
     var activeAlarmCodes: Set<Int>
         get() = (p.getStringSet("active_alarm_codes", emptySet()) ?: emptySet())
                     .mapNotNull { it.toIntOrNull() }.toSet()
@@ -81,8 +89,9 @@ class Prefs(context: Context) {
     fun pruneRaisedAlarmKeys(nowMs: Long = System.currentTimeMillis()) {
         val cutoffMs = nowMs - 2 * 24 * 60 * 60 * 1000L
         val pruned = raisedAlarmKeys.filter { key ->
-            val startMs = key.substringAfterLast('_').toLongOrNull() ?: return@filter false
-            startMs >= cutoffMs
+            // Key format: "${uid}_${startMs}_${endMs}". Keep until the event end is >2 days past.
+            val endMs = key.substringAfterLast('_').toLongOrNull() ?: return@filter false
+            endMs >= cutoffMs
         }.toSet()
         if (pruned.size != raisedAlarmKeys.size) raisedAlarmKeys = pruned
     }
