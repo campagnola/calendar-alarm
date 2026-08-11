@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import kotlinx.coroutines.*
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 class PollReceiver : BroadcastReceiver() {
 
@@ -16,7 +18,7 @@ class PollReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun poll(context: Context) {
+    internal suspend fun poll(context: Context) {
         val prefs = Prefs(context)
         AppLog.i("PollReceiver: polling ${prefs.icsSources.size} source(s)")
 
@@ -28,14 +30,7 @@ class PollReceiver : BroadcastReceiver() {
             return
         }
 
-        val maxCacheTs = sources.maxOfOrNull { it.cacheTimestamp } ?: System.currentTimeMillis()
-        if (!hasLocalCalendars && maxCacheTs <= prefs.lastAlarmScheduleTs) {
-            AppLog.i("PollReceiver: all caches unchanged, skipping reschedule")
-            AlarmScheduler.schedulePoll(context, prefs.pollIntervalMinutes * 60_000L)
-            return
-        }
-
-        val nowDt = LocalDateTime.now()
+        val nowDt = LocalDateTime.ofInstant(Instant.ofEpochMilli(AppClock.now()), ZoneId.systemDefault())
         val today = nowDt.toLocalDate()
 
         val parsedPerSource = sources.map { source ->
@@ -81,7 +76,6 @@ class PollReceiver : BroadcastReceiver() {
         }
 
         prefs.activeAlarmCodes    = AlarmScheduler.scheduleAll(context, events, eventFlags, prefs)
-        prefs.lastAlarmScheduleTs = maxCacheTs
         prefs.lastPollTime        = System.currentTimeMillis()
         AppLog.i("PollReceiver: done, ${prefs.activeAlarmCodes.size} alarms registered")
 

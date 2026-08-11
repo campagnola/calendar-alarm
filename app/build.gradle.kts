@@ -28,7 +28,10 @@ android {
         jvmTarget = "1.8"
     }
     testOptions {
-        unitTests { isReturnDefaultValues = true }
+        unitTests {
+            isReturnDefaultValues = true
+            isIncludeAndroidResources = true
+        }
     }
     buildFeatures {
         viewBinding = true
@@ -44,4 +47,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20231013")
+    testImplementation("org.robolectric:robolectric:4.12.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }

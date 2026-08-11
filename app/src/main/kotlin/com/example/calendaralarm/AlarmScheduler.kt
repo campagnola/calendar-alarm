@@ -23,7 +23,7 @@ object AlarmScheduler {
         )
         AppLog.i("schedulePoll: next poll in ${delayMs / 1000}s")
         try {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + delayMs, pi)
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, AppClock.now() + delayMs, pi)
         } catch (_: SecurityException) {
             AppLog.w("schedulePoll: SecurityException")
         }
@@ -186,7 +186,7 @@ object AlarmScheduler {
         cancelAllEventAlarms(context, prefs.activeAlarmCodes)
         cancelQuietHoursAlarm(context)
 
-        val now = System.currentTimeMillis()
+        val now = AppClock.now()
         val newCodes = mutableSetOf<Int>()
 
         val planned = planAlarms(

@@ -86,7 +86,7 @@ class Prefs(context: Context) {
         p.edit().putStringSet("raised_alarm_keys", current).apply()
     }
 
-    fun pruneRaisedAlarmKeys(nowMs: Long = System.currentTimeMillis()) {
+    fun pruneRaisedAlarmKeys(nowMs: Long = AppClock.now()) {
         val cutoffMs = nowMs - 2 * 24 * 60 * 60 * 1000L
         val pruned = raisedAlarmKeys.filter { key ->
             // Key format: "${uid}_${startMs}_${endMs}". Keep until the event end is >2 days past.
