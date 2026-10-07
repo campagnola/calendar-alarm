@@ -7,15 +7,20 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import java.time.Instant
-import java.time.ZoneId
-import org.json.JSONArray
 
 object NotificationHelper {
     const val CHANNEL_ALARM = "alarm"
     const val CHANNEL_REMINDER = "reminder"
-    const val ALARM_NOTIF_ID = 42
-    const val QUIET_HOURS_NOTIF_ID = 43
+
+    private const val PI_FLAGS = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+
+    // Offsets from an alarm's hash giving each of its PendingIntents its own request code.
+    private const val RC_DISMISS = 0
+    private const val RC_SNOOZE  = 1
+    private const val RC_SCREEN  = 2
+    private const val RC_JOIN    = 3
+    private const val RC_DELETE  = 4
+    private const val RC_MAIN    = 5
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -26,122 +31,104 @@ object NotificationHelper {
             }
         )
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_REMINDER, "Quiet Hours Reminder", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(CHANNEL_REMINDER, "Reminders", NotificationManager.IMPORTANCE_DEFAULT)
         )
     }
 
-    fun showQuietHoursNotification(context: Context, count: Int) {
-        val nm = context.getSystemService(NotificationManager::class.java)
-        val pi = PendingIntent.getActivity(
-            context, 0,
-            Intent(context, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val text = "$count ${if (count == 1) "event" else "events"} scheduled during quiet hours"
-        val notif = NotificationCompat.Builder(context, CHANNEL_REMINDER)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Upcoming events")
-            .setContentText(text)
-            .setContentIntent(pi)
+    /** The ongoing notification of a ringing alarm. */
+    fun ringingNotificationId(alarmId: String): Int = "ringing:$alarmId".hashCode()
+
+    /** The one-off notification of a silent or missed alarm. */
+    fun noticeNotificationId(alarmId: String): Int = alarmId.hashCode()
+
+    /** The reminder to grant [prompt]. */
+    fun permissionNotificationId(prompt: PermissionPrompt): Int = 1 + prompt.ordinal
+
+    fun showSilentAlarm(context: Context, instance: AlarmInstance) = postNotice(context, instance, titlePrefix = "")
+
+    fun showMissedAlarm(context: Context, instance: AlarmInstance) =
+        postNotice(context, instance, titlePrefix = "Missed alarm: ")
+
+    /** Asks the user to grant [prompt]; re-posting it while shown does not alert again. */
+    fun showPermissionReminder(context: Context, prompt: PermissionPrompt) {
+        val id = permissionNotificationId(prompt)
+        val settingsPi = PendingIntent.getActivity(context, id,
+            prompt.settingsIntent(context).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PI_FLAGS)
+        val notification = NotificationCompat.Builder(context, CHANNEL_REMINDER)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(prompt.title)
+            .setContentText(prompt.message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(prompt.message))
+            .setContentIntent(settingsPi)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .build()
-        nm.notify(QUIET_HOURS_NOTIF_ID, notif)
+        context.getSystemService(NotificationManager::class.java).notify(id, notification)
+        AppLog.i("NotificationHelper: permission reminder posted for $prompt")
     }
 
-    fun showSilentAlarmNotification(context: Context, eventsJson: String) {
-        val nm = context.getSystemService(NotificationManager::class.java)
-        nm.notify(ALARM_NOTIF_ID, buildAlarmNotification(context, eventsJson, silent = true))
+    fun buildRingingNotification(context: Context, instance: AlarmInstance): Notification {
+        val presentation = AlarmPresentation(context, instance)
+        fun actionPi(action: String, rc: Int) = PendingIntent.getBroadcast(context, requestCode(instance, rc),
+            Intent(context, ActionReceiver::class.java).setAction(action).putExtra(EXTRA_ALARM_ID, instance.id),
+            PI_FLAGS)
+        val screenPi = PendingIntent.getActivity(context, requestCode(instance, RC_SCREEN),
+            Intent(context, AlarmActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra(EXTRA_ALARM_ID, instance.id), PI_FLAGS)
+        return builder(context, CHANNEL_ALARM, instance, presentation, presentation.title)
+            .setContentIntent(screenPi)
+            .setFullScreenIntent(screenPi, true)
+            .addAction(0, "Dismiss", actionPi(ActionReceiver.ACTION_DISMISS, RC_DISMISS))
+            .addAction(0, presentation.snoozeLabel, actionPi(ActionReceiver.ACTION_SNOOZE, RC_SNOOZE))
+            .addJoinAction(context, instance, presentation)
+            .setDeleteIntent(actionPi(ActionReceiver.ACTION_NOTIFICATION_DELETED, RC_DELETE))
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
     }
 
-    fun buildAlarmNotification(context: Context, eventsJson: String, silent: Boolean = false): Notification {
-        val arr    = JSONArray(eventsJson)
-        val count  = arr.length()
-        val first  = arr.getJSONObject(0)
+    /** A finished alarm's notification: nothing to dismiss or snooze. */
+    private fun postNotice(context: Context, instance: AlarmInstance, titlePrefix: String) {
+        val presentation = AlarmPresentation(context, instance)
+        val title = titlePrefix + presentation.title
+        val mainPi = PendingIntent.getActivity(context, requestCode(instance, RC_MAIN),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PI_FLAGS)
+        val notification = builder(context, CHANNEL_REMINDER, instance, presentation, title)
+            .setContentIntent(mainPi)
+            .addJoinAction(context, instance, presentation)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_EVENT)
+            .setSilent(true)
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(noticeNotificationId(instance.id), notification)
+        AppLog.i("NotificationHelper: '$title' posted for ${instance.id}")
+    }
 
-        val firstSummary = first.getString("summary")
-        val startTime    = first.getString("start_time")
-        val firstUid     = first.getString("uid")
-        val firstLoc     = first.optString("location", "")
-        val firstUrl     = first.optString("meeting_url", "").takeIf { it.isNotEmpty() }
-        val maxStartTimeMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
-
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val base  = firstUid.hashCode()
-
-        val alarmActivityIntent = Intent(context, AlarmActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("events_json", eventsJson)
-        }
-        val fullScreenPi = PendingIntent.getActivity(context, base + 2, alarmActivityIntent, flags)
-
-        val dismissPi = PendingIntent.getBroadcast(context, base,
-            Intent(context, ActionReceiver::class.java).apply {
-                action = ActionReceiver.ACTION_DISMISS
-            }, flags)
-
-        val snoozePi = PendingIntent.getBroadcast(context, base + 1,
-            Intent(context, ActionReceiver::class.java).apply {
-                action = ActionReceiver.ACTION_SNOOZE
-                putExtra("events_json", eventsJson)
-            }, flags)
-
-        val snoozeUntilMs   = AlarmScheduler.computeSnoozeUntilMs(maxStartTimeMs, Prefs(context))
-        val snoozeUntilTime = Instant.ofEpochMilli(snoozeUntilMs)
-            .atZone(ZoneId.systemDefault()).toLocalDateTime()
-        val snoozeLabel = "Snooze until ${snoozeUntilTime.format(timeFormatter(context))}"
-
-        val title = if (count == 1) firstSummary else "$count events at $startTime"
-        val contentText = if (count == 1) {
-            buildString {
-                append("Starts at $startTime")
-                if (firstLoc.isNotEmpty()) append(" · $firstLoc")
-            }
-        } else {
-            (0 until count).joinToString("\n") { arr.getJSONObject(it).getString("summary") }
-        }
-
-        val builder = NotificationCompat.Builder(
-            context,
-            if (silent) CHANNEL_REMINDER else CHANNEL_ALARM
-        )
+    private fun builder(context: Context, channel: String, instance: AlarmInstance,
+                        presentation: AlarmPresentation, title: String): NotificationCompat.Builder {
+        val text = listOfNotNull(presentation.subtitle, presentation.location).joinToString(" · ")
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(title)
-            .setContentText(contentText)
-            .setContentIntent(fullScreenPi)
-            .addAction(0, "Dismiss", dismissPi)
-            .addAction(0, snoozeLabel, snoozePi)
-
-        if (silent) {
-            builder
-                .setAutoCancel(true)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setCategory(NotificationCompat.CATEGORY_EVENT)
-                .setSilent(true)
-        } else {
-            builder
-                .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setFullScreenIntent(fullScreenPi, true)
-        }
-
-        if (count > 1) {
-            builder.setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
-        }
-
-        if (count == 1 && firstUrl != null) {
-            val joinPi = PendingIntent.getBroadcast(context, base + 3,
-                Intent(context, ActionReceiver::class.java).apply {
-                    action = ActionReceiver.ACTION_JOIN
-                    putExtra("meeting_url", firstUrl)
-                }, flags)
-            val label = if (firstUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
-            builder.addAction(0, label, joinPi)
-        }
-
-        return builder.build()
+            .setContentText(text)
+        if (instance.events.size > 1) builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        return builder
     }
+
+    // Opens the meeting from an activity, since Android 12+ blocks activity starts from a
+    // receiver that a notification action started (notification trampolines).
+    private fun NotificationCompat.Builder.addJoinAction(context: Context, instance: AlarmInstance,
+                                                         presentation: AlarmPresentation) = apply {
+        val url = presentation.meetingUrl ?: return@apply
+        val joinPi = PendingIntent.getActivity(context, requestCode(instance, RC_JOIN),
+            JoinActivity.intent(context, instance.id, url), PI_FLAGS)
+        addAction(0, presentation.joinLabel, joinPi)
+    }
+
+    private fun requestCode(instance: AlarmInstance, offset: Int) = instance.id.hashCode() + offset
 }

@@ -2,9 +2,6 @@ package com.example.calendaralarm
 
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
@@ -110,83 +107,19 @@ class AlarmPlannerTest {
     }
 
     // ── Test 6 ────────────────────────────────────────────────────────────────
-    // Reproduces: alarm fires at 10:12 AM for a 9:00 AM event on the calendar for months.
-    //
-    // Two compounding issues:
-    //
-    // Issue A — MainActivity window anchored to midnight:
-    //   windowEnd = visDayStart.plusHours(25)   (= tomorrow 01:00 AM when showing today)
-    //   Events starting after 01:00 AM tomorrow are excluded from the parse window.
-    //   A 9:00 AM event tomorrow is therefore not scheduled when the app is opened today
-    //   before 8 PM.
-    //
-    // Issue B — PollReceiver skip when ICS is unchanged:
-    //   After each scheduleAll call, lastAlarmScheduleTs = maxCacheTs (ICS file timestamp).
-    //   On every subsequent poll, maxCacheTs <= lastAlarmScheduleTs fires → skip.
-    //   scheduleAll is never called again until the ICS changes, regardless of how much
-    //   time has passed or how many upcoming events are now within the 25h window.
-    //
-    // Combined effect: if the user opened the app yesterday (Issue A missed tomorrow's 9 AM
-    // event), all today's PollReceiver polls skip (Issue B), and the event gets no alarm.
-    // When the user opens the app at 10:12 AM today, loadSchedule calls scheduleAll.
-    // The event hasn't ended → it is included; trigger (8:55 AM) is in the past → late alarm.
-    @Test fun `missed alarm fires late when ICS unchanged and window excluded the event`() {
-        // Event: tomorrow 9:00–11:00 AM (still ongoing when the late reschedule happens at 10:12)
+    // An event whose trigger has already passed but which has not ended yet is
+    // scheduled immediately (now + 2s) rather than dropped.
+    @Test fun `ongoing event whose trigger has passed fires at now plus 2s`() {
         val event9am = CalendarEvent(
             uid = "standup", summary = "Morning Standup",
             start = tomorrow.atTime(9, 0),
             end   = tomorrow.atTime(11, 0),
             isAllDay = false
         )
-
-        // ── Issue A: MainActivity window misses the event ────────────────────────────
-        // User opens the app today (visDay = today, visDayStart = today 00:00).
-        // windowEnd = visDayStart + 25h = tomorrow 01:00 AM.
-        val mainActivityWindowEnd = today.atTime(0, 0).plusHours(25)  // tomorrow 01:00 AM
-        assertFalse(
-            "Issue A: tomorrow's 9 AM event is outside MainActivity's window (ends tomorrow 01:00)",
-            event9am.start.isBefore(mainActivityWindowEnd)
-        )
-
-        // ── Issue B: PollReceiver skip prevents later rescheduling ───────────────────
-        // The last time PollReceiver called scheduleAll, it saved lastAlarmScheduleTs = cacheTs.
-        // While the ICS is unchanged, maxCacheTs == cacheTs on every subsequent poll.
-        val cacheTs = nowMs - 30L * 60 * 60_000  // ICS last changed 30h ago
-        val lastAlarmScheduleTs = cacheTs
-        val maxCacheTs = cacheTs  // ICS still unchanged
-        assertTrue(
-            "Issue B: skip fires (maxCacheTs <= lastAlarmScheduleTs) even though event " +
-            "has now entered the 25h window — scheduleAll is never called",
-            maxCacheTs <= lastAlarmScheduleTs
-        )
-
-        // ── Correct behavior if planAlarms were called on time ───────────────────────
-        // At nowMs (today 20:00), tomorrow's 9 AM event IS within [now, now+25h].
-        // planAlarms would schedule it correctly if it were called.
-        val pollWindowEnd = LocalDateTime.ofEpochSecond(nowMs / 1000, 0, ZoneOffset.UTC).plusHours(25)
-        assertTrue("Event IS in PollReceiver's 25h window right now",
-            event9am.start.isBefore(pollWindowEnd))
-
-        val onTimeResult = planAlarms(
-            listOf(event9am), emptyMap(), 5, false, quietStart, quietEnd, nowMs
-        )
-        assertEquals("planAlarms schedules the event if called at nowMs", 1, onTimeResult.size)
-        assertEquals("On-time trigger is 8:55 AM tomorrow",
-            utcMs(tomorrow, 8, 55), onTimeResult[0].triggerMs)
-
-        // ── What actually happens: late alarm at 10:12 AM ────────────────────────────
-        // The first scheduleAll call that includes the event is at tomorrow 10:12 AM
-        // (user opens the app). By then the trigger (8:55 AM) is 77 minutes in the past.
         val lateNowMs = utcMs(tomorrow, 10, 12)
-        val lateResult = planAlarms(
-            listOf(event9am), emptyMap(), 5, false, quietStart, quietEnd, lateNowMs
-        )
-        assertEquals("Event fires as a late alarm", 1, lateResult.size)
-        // BUG CONFIRMED: alarm fires 77 minutes late instead of at the intended 8:55 AM.
-        assertNotEquals("BUG: alarm trigger is 10:12 AM+2s instead of the intended 8:55 AM",
-            utcMs(tomorrow, 8, 55), lateResult[0].triggerMs)
-        assertEquals("Late trigger is nowMs+2s",
-            lateNowMs + 2_000L, lateResult[0].triggerMs)
+        val result = planAlarms(listOf(event9am), emptyMap(), 5, false, quietStart, quietEnd, lateNowMs)
+        assertEquals(1, result.size)
+        assertEquals(lateNowMs + 2_000L, result[0].triggerMs)
     }
 
     // ── Test 5 ────────────────────────────────────────────────────────────────

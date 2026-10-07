@@ -33,6 +33,27 @@ object FilterEngine {
         return EventFlags(alarmEnabled, visible, advanceMin, relativeToEnd, quietHoursMode)
     }
 
+    /** Filter flags per event, overridden by series then per-event alarm preferences. */
+    fun effectiveFlags(
+        events: List<CalendarEvent>,
+        filters: List<EventFilter>,
+        preferences: List<EventPreference>
+    ): Map<CalendarEvent, EventFlags> {
+        val prefByKey = preferences.associateBy { it.key }
+        return events.associateWith { event ->
+            var flags = evaluate(event, filters)
+            if (event.isSeries) {
+                prefByKey[EventPreference.seriesKey(event)]?.alarmEnabled?.let {
+                    flags = flags.copy(alarmEnabled = it)
+                }
+            }
+            prefByKey[EventPreference.eventKey(event)]?.alarmEnabled?.let {
+                flags = flags.copy(alarmEnabled = it)
+            }
+            flags
+        }
+    }
+
     /** True if the event satisfies all criteria (empty list = matches everything). */
     fun matches(event: CalendarEvent, criteria: List<FilterCriterion>): Boolean =
         criteria.isEmpty() || criteria.all { matchOne(event, it) }

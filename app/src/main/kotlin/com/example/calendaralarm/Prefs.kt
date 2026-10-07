@@ -58,42 +58,19 @@ class Prefs(context: Context) {
         get() = p.getLong("last_poll", 0L)
         set(v) = p.edit().putLong("last_poll", v).apply()
 
-    var lastAlarmScheduleTs: Long
-        get() = p.getLong("last_alarm_schedule_ts", 0L)
-        set(v) = p.edit().putLong("last_alarm_schedule_ts", v).apply()
+    // ── Alarm state from before AlarmStore (read once, by the migration) ──────
 
-    // Non-null while AlarmService is running; used to redirect MainActivity to AlarmActivity.
-    var activeAlarmJson: String?
-        get() = p.getString("active_alarm_json", null)
-        set(value) {
-            if (value != null) p.edit().putString("active_alarm_json", value).apply()
-            else p.edit().remove("active_alarm_json").apply()
-        }
-
-    var activeAlarmCodes: Set<Int>
-        get() = (p.getStringSet("active_alarm_codes", emptySet()) ?: emptySet())
-                    .mapNotNull { it.toIntOrNull() }.toSet()
-        set(v) = p.edit().putStringSet("active_alarm_codes", v.map { it.toString() }.toSet()).apply()
-
-    // Keys of alarms that have already been raised, formatted as "${uid}_${startMs}".
-    var raisedAlarmKeys: Set<String>
-        get() = HashSet(p.getStringSet("raised_alarm_keys", emptySet()) ?: emptySet())
-        set(v) = p.edit().putStringSet("raised_alarm_keys", v).apply()
-
-    fun markAlarmRaised(key: String) {
-        val current = raisedAlarmKeys.toMutableSet()
-        current.add(key)
-        p.edit().putStringSet("raised_alarm_keys", current).apply()
+    /** AlarmKeys of raised alarms and request codes of registered alarms, or null if none are stored. */
+    fun legacyAlarmState(): Pair<Set<String>, Set<Int>>? {
+        if (LEGACY_ALARM_KEYS.none(p::contains)) return null
+        return p.getStringSet("raised_alarm_keys", emptySet())!!.toSet() to
+               p.getStringSet("active_alarm_codes", emptySet())!!.map(String::toInt).toSet()
     }
 
-    fun pruneRaisedAlarmKeys(nowMs: Long = AppClock.now()) {
-        val cutoffMs = nowMs - 2 * 24 * 60 * 60 * 1000L
-        val pruned = raisedAlarmKeys.filter { key ->
-            // Key format: "${uid}_${startMs}_${endMs}". Keep until the event end is >2 days past.
-            val endMs = key.substringAfterLast('_').toLongOrNull() ?: return@filter false
-            endMs >= cutoffMs
-        }.toSet()
-        if (pruned.size != raisedAlarmKeys.size) raisedAlarmKeys = pruned
+    fun clearLegacyAlarmState() {
+        val edit = p.edit()
+        LEGACY_ALARM_KEYS.forEach(edit::remove)
+        check(edit.commit()) { "could not clear legacy alarm state" }
     }
 
     // ── Per-URL metadata (keyed by urlId = first 8 hex chars of MD5(url)) ────
@@ -204,7 +181,6 @@ class Prefs(context: Context) {
         val prefs = eventPreferences.associateBy { it.key }.toMutableMap()
         prefs[pref.key] = pref
         eventPreferences = prefs.values.sortedBy { it.key }
-        lastAlarmScheduleTs = 0L
     }
 
     fun updateEventPreferenceLastSeen(events: List<CalendarEvent>) {
@@ -264,5 +240,9 @@ class Prefs(context: Context) {
             .remove("fetch_ms_$id").remove("fetch_ok_$id").remove("event_count_$id")
             .remove("name_$id")
             .apply()
+    }
+
+    private companion object {
+        val LEGACY_ALARM_KEYS = listOf("raised_alarm_keys", "active_alarm_codes", "active_alarm_json")
     }
 }

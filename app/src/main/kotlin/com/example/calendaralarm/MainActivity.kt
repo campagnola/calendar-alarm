@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
@@ -53,18 +52,17 @@ class MainActivity : AppCompatActivity() {
 
         NotificationHelper.createChannels(this)
         requestNotificationPermissionIfNeeded()
-        requestFullScreenIntentPermissionIfNeeded()
+        promptForAlarmPermissions()
+        AlarmScheduler.ensurePollScheduled(this)
         loadSchedule()
     }
 
     override fun onResume() {
         super.onResume()
-        val activeAlarm = prefs.activeAlarmJson
-        if (activeAlarm != null) {
-            startActivity(Intent(this, AlarmActivity::class.java).apply {
-                putExtra("events_json", activeAlarm)
-                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            })
+        val ringing = AlarmStore.from(this).latestRinging()
+        if (ringing != null) {
+            AppLog.i("MainActivity: alarm ${ringing.id} ringing, redirecting to AlarmActivity")
+            startActivity(Intent(this, AlarmActivity::class.java).putExtra(EXTRA_ALARM_ID, ringing.id))
             return
         }
         loadSchedule()
@@ -84,13 +82,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
-        R.id.action_refresh  -> { loadSchedule(forceDownload = true); true }
+        R.id.action_refresh  -> { loadSchedule(syncAlarms = true); true }
         else -> super.onOptionsItemSelected(item)
     }
 
     // ── Visible-day logic ─────────────────────────────────────────────────────
 
-    private fun visibleDay(now: LocalDateTime = LocalDateTime.now()): LocalDate {
+    private fun visibleDay(now: LocalDateTime = AppClock.nowLocal()): LocalDate {
         val minuteOfDay = now.hour * 60 + now.minute
         return if (minuteOfDay >= prefs.showTomorrowAtMinutes) now.toLocalDate().plusDays(1)
                else now.toLocalDate()
@@ -98,8 +96,8 @@ class MainActivity : AppCompatActivity() {
 
     // ── Schedule loading ──────────────────────────────────────────────────────
 
-    private fun loadSchedule(forceDownload: Boolean = false, silent: Boolean = false) {
-        val now    = LocalDateTime.now()
+    private fun loadSchedule(syncAlarms: Boolean = false, silent: Boolean = false) {
+        val now    = AppClock.nowLocal()
         val today  = now.toLocalDate()
         val visDay = visibleDay(now)
 
@@ -122,11 +120,13 @@ class MainActivity : AppCompatActivity() {
             // Returns events for the visible window paired with their alarm-enabled flag,
             // or null on total fetch failure.
             val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
+                if (syncAlarms) ScheduleSync.run(this@MainActivity, "user refresh")
+
                 val visDayStart = visDay.atStartOfDay()
                 val windowStart = if (visDay == today) visDayStart else now
-                val windowEnd   = visDayStart.plusHours(25)
+                val windowEnd   = visDay.plusDays(1).atStartOfDay()
 
-                val icsSources = IcsFetcher.fetchAll(this@MainActivity, forceDownload)
+                val icsSources = IcsFetcher.fetchAll(this@MainActivity)
 
                 val localEvents = if (prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()) {
                     LocalCalendarReader.fetchEvents(this@MainActivity, prefs.localCalendarIds, windowStart, windowEnd)
@@ -137,41 +137,17 @@ class MainActivity : AppCompatActivity() {
                     return@withContext null
                 }
 
-                val parsedPerSource = icsSources.map { source ->
-                    val id = prefs.urlId(source.url)
-                    source to IcsParser.parse(source.text, windowStart, windowEnd, id)
-                }
-                for ((source, sourceEvents) in parsedPerSource) {
-                    prefs.setIcsLastFetchEventCount(
-                        prefs.urlId(source.url),
-                        sourceEvents.count { it.start.toLocalDate() == today }
-                    )
-                }
-                if (prefs.localCalendarEnabled) {
-                    prefs.setLocalCalendarEventCount(
-                        localEvents.count { it.start.toLocalDate() == today })
-                }
-                val allEvents = parsedPerSource.flatMap { it.second } + localEvents
-
-                val filters    = prefs.eventFilters
-                prefs.pruneStaleEventPreferences(now)
-                prefs.updateEventPreferenceLastSeen(allEvents)
-                val eventFlags = effectiveEventFlags(allEvents, filters)
-
-                for (filter in filters) {
-                    prefs.setFilterMatchCount(filter.id,
-                        allEvents.count { it.start.toLocalDate() == today
-                                       && FilterEngine.matches(it, filter.criteria) })
-                }
-
-                scheduleAlarms(allEvents, eventFlags)
+                val allEvents = icsSources.flatMap { source ->
+                    IcsParser.parse(source.text, windowStart, windowEnd, prefs.urlId(source.url))
+                } + localEvents
+                val eventFlags = FilterEngine.effectiveFlags(allEvents, prefs.eventFilters, prefs.eventPreferences)
 
                 allEvents
                     .filter { it.start >= windowStart
                            && it.start.toLocalDate() <= visDay
-                           && eventFlags[it]?.visible != false }
+                           && eventFlags.getValue(it).visible }
                     .sortedBy { it.start }
-                    .map { it to (eventFlags[it]?.alarmEnabled != false) }
+                    .map { it to eventFlags.getValue(it).alarmEnabled }
             }
 
             when {
@@ -182,7 +158,7 @@ class MainActivity : AppCompatActivity() {
                     binding.scheduleContainer.removeAllViews()
                     binding.statusText.visibility = View.GONE
                     val fmt        = timeFormatter(this@MainActivity)
-                    val displayNow = LocalDateTime.now()
+                    val displayNow = AppClock.nowLocal()
                     val showingTomorrow = visDay != today
                     var headerInserted  = false
 
@@ -198,32 +174,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             refreshMenuItem?.isEnabled = true
-        }
-    }
-
-    // ── Alarm scheduling ──────────────────────────────────────────────────────
-
-    private fun scheduleAlarms(events: List<CalendarEvent>,
-                               flags: Map<CalendarEvent, FilterEngine.EventFlags>) {
-        prefs.activeAlarmCodes = AlarmScheduler.scheduleAll(this, events, flags, prefs)
-    }
-
-    private fun effectiveEventFlags(
-        events: List<CalendarEvent>,
-        filters: List<EventFilter>
-    ): Map<CalendarEvent, FilterEngine.EventFlags> {
-        val prefByKey = prefs.eventPreferences.associateBy { it.key }
-        return events.associateWith { event ->
-            var flags = FilterEngine.evaluate(event, filters)
-            if (event.isSeries) {
-                prefByKey[EventPreference.seriesKey(event)]?.alarmEnabled?.let {
-                    flags = flags.copy(alarmEnabled = it)
-                }
-            }
-            prefByKey[EventPreference.eventKey(event)]?.alarmEnabled?.let {
-                flags = flags.copy(alarmEnabled = it)
-            }
-            flags
         }
     }
 
@@ -274,7 +224,7 @@ class MainActivity : AppCompatActivity() {
         val joinButton = view.findViewById<MaterialButton>(R.id.joinButton)
         val meetingUrl = event.meetingUrl
         if (meetingUrl != null) {
-            joinButton.text = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
+            joinButton.text = AlarmPresentation.joinLabel(meetingUrl)
             joinButton.visibility = View.VISIBLE
             joinButton.setOnClickListener {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(meetingUrl)))
@@ -297,21 +247,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestFullScreenIntentPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val nm = getSystemService(android.app.NotificationManager::class.java)
-            if (!nm.canUseFullScreenIntent()) {
-                AlertDialog.Builder(this)
-                    .setTitle("Lock-screen alarm permission needed")
-                    .setMessage("To show alarm alerts when your phone is locked, grant this app the 'Display over lock screen' permission in Settings.")
-                    .setPositiveButton("Open Settings") { _, _ ->
-                        startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                            data = Uri.parse("package:$packageName")
-                        })
-                    }
-                    .setNegativeButton("Not now", null)
-                    .show()
-            }
+    private fun promptForAlarmPermissions() {
+        for (prompt in PermissionPrompt.values().filterNot { it.isGranted(this) }) {
+            AlertDialog.Builder(this)
+                .setTitle(prompt.title)
+                .setMessage(prompt.message)
+                .setPositiveButton("Open Settings") { _, _ -> startActivity(prompt.settingsIntent(this)) }
+                .setNegativeButton("Not now", null)
+                .show()
         }
     }
 }

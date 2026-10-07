@@ -1,20 +1,26 @@
 package com.example.calendaralarm
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Vibrator
-import android.os.VibratorManager
-import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
+import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
-import org.json.JSONArray
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 
+/**
+ * The alarm screen: a view of one ringing alarm in [AlarmStore]. It closes itself once that alarm
+ * stops ringing, by any path; its buttons only send commands to the [AlarmController].
+ */
 class AlarmActivity : AppCompatActivity() {
+
+    private lateinit var alarmId: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,90 +39,78 @@ class AlarmActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_alarm)
 
-        val eventsJson = intent.getStringExtra("events_json") ?: return
-        val arr   = JSONArray(eventsJson)
-        val count = arr.length()
-        val first = arr.getJSONObject(0)
-
-        val startTime    = first.getString("start_time")
-        val maxStartTimeMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
-
-        // Title: single summary or "N events"
-        val titleText = if (count == 1) first.getString("summary")
-                        else "$count events at $startTime"
-        val subtitleText = if (count == 1) "Starts at $startTime"
-                           else (0 until count).joinToString("\n") { arr.getJSONObject(it).getString("summary") }
-
-        findViewById<TextView>(R.id.alarmLabel).text =
-            if (count == 1) "Upcoming Event" else "Upcoming Events"
-        findViewById<TextView>(R.id.alarmTitle).text = titleText
-        findViewById<TextView>(R.id.alarmTime).text  = subtitleText
-
-        // Location: first non-empty across all events
-        val location = (0 until count).firstNotNullOfOrNull {
-            arr.getJSONObject(it).optString("location", "").takeIf { s -> s.isNotEmpty() }
-        }
-        val locationView = findViewById<TextView>(R.id.alarmLocation)
-        if (location != null && count == 1) {
-            locationView.text = location
-            locationView.visibility = View.VISIBLE
-        } else {
-            locationView.visibility = View.GONE
-        }
-
-        // Join button: first event with a meeting URL (single-event only for clean UX)
-        val meetingUrl = if (count == 1) first.optString("meeting_url", "").takeIf { it.isNotEmpty() }
-                         else null
-        val joinButton = findViewById<Button>(R.id.joinButton)
-        if (meetingUrl != null) {
-            joinButton.text = if (meetingUrl.contains("zoom.us", ignoreCase = true)) "Join Zoom" else "Join Teams"
-            joinButton.visibility = View.VISIBLE
-            joinButton.setOnClickListener {
-                Prefs(this).activeAlarmJson = null
-                sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
-                    action = ActionReceiver.ACTION_JOIN
-                    putExtra("meeting_url", meetingUrl)
-                })
-                finish()
-            }
-        } else {
-            joinButton.visibility = View.GONE
+        // Back is ignored; only the buttons end an alarm.
+        onBackPressedDispatcher.addCallback(this) {
+            AppLog.i("AlarmActivity: Back ignored")
         }
 
         findViewById<Button>(R.id.dismissButton).setOnClickListener {
-            Prefs(this).activeAlarmJson = null
-            sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
-                action = ActionReceiver.ACTION_DISMISS
-            })
-            finish()
+            AlarmController.from(this).dismiss(alarmId)
+        }
+        findViewById<Button>(R.id.snoozeButton).setOnClickListener {
+            AlarmController.from(this).snooze(alarmId)
         }
 
-        val prefs = Prefs(this)
-        val snoozeUntilMs = AlarmScheduler.computeSnoozeUntilMs(maxStartTimeMs, prefs)
-        val snoozeUntilTime = java.time.Instant.ofEpochMilli(snoozeUntilMs)
-            .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
-        val snoozeButton = findViewById<Button>(R.id.snoozeButton)
-        snoozeButton.text = "Snooze until ${snoozeUntilTime.format(timeFormatter(this))}"
-        snoozeButton.setOnClickListener {
-            Prefs(this).activeAlarmJson = null
-            sendBroadcast(Intent(this, ActionReceiver::class.java).apply {
-                action = ActionReceiver.ACTION_SNOOZE
-                putExtra("events_json", eventsJson)
-            })
-            finish()
+        AppLog.i("AlarmActivity onCreate")
+        alarmId = alarmIdFrom(intent)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                AlarmStore.changes.collect { render() }
+            }
         }
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                getSystemService(VibratorManager::class.java).defaultVibrator.cancel()
-            } else {
-                @Suppress("DEPRECATION")
-                getSystemService(Vibrator::class.java).cancel()
-            }
-            return true
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        AppLog.i("AlarmActivity onNewIntent")
+        setIntent(intent)
+        alarmId = alarmIdFrom(intent)
+        render()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppLog.i("AlarmActivity onResume")
+    }
+
+    override fun onPause() {
+        AppLog.i("AlarmActivity onPause")
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        AppLog.i("AlarmActivity onDestroy")
+        super.onDestroy()
+    }
+
+    private fun alarmIdFrom(intent: Intent): String =
+        requireNotNull(intent.getStringExtra(EXTRA_ALARM_ID)) { "AlarmActivity started without an alarm id" }
+
+    private fun render() {
+        val instance = AlarmStore.from(this).find(alarmId)
+        if (instance?.state != AlarmInstance.State.RINGING) {
+            AppLog.i("AlarmActivity: $alarmId is ${instance?.state ?: "unknown"}, closing")
+            finish()
+            return
         }
-        return super.onKeyDown(keyCode, event)
+        AppLog.i("AlarmActivity: showing $alarmId")
+        val presentation = AlarmPresentation(this, instance)
+
+        findViewById<TextView>(R.id.alarmLabel).text = presentation.heading
+        findViewById<TextView>(R.id.alarmTitle).text = presentation.title
+        findViewById<TextView>(R.id.alarmTime).text  = presentation.subtitle
+        findViewById<TextView>(R.id.alarmLocation).showText(presentation.location)
+        findViewById<Button>(R.id.snoozeButton).text = presentation.snoozeLabel
+
+        val joinButton = findViewById<Button>(R.id.joinButton)
+        joinButton.showText(presentation.joinLabel)
+        joinButton.setOnClickListener {
+            startActivity(JoinActivity.intent(this, instance.id, checkNotNull(presentation.meetingUrl)))
+        }
+    }
+
+    private fun TextView.showText(value: String?) {
+        text = value
+        visibility = if (value == null) View.GONE else View.VISIBLE
     }
 }

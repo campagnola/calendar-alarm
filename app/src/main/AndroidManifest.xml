@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <application
+        android:name=".CalendarAlarmApp"
         android:allowBackup="true"
         android:label="@string/app_name"
         android:theme="@style/Theme.CalendarAlarm">
@@ -26,8 +27,19 @@
 
         <activity
             android:name=".AlarmActivity"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.example.calendaralarm.alarm"
+            android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
+            android:exported="false" />
+
+        <activity
+            android:name=".JoinActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
             android:exported="false" />
 
         <activity
@@ -62,13 +74,15 @@
         <receiver android:name=".PollReceiver" android:exported="false" />
         <receiver android:name=".AlarmReceiver" android:exported="false" />
         <receiver android:name=".ActionReceiver" android:exported="false" />
-        <receiver android:name=".QuietHoursReceiver" android:exported="false" />
 
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
 

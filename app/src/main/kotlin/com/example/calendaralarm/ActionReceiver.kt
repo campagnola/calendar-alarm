@@ -3,40 +3,24 @@ package com.example.calendaralarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.app.NotificationManager
 
+/** Notification actions; each names the alarm instance it acts on. */
 class ActionReceiver : BroadcastReceiver() {
     companion object {
-        const val ACTION_DISMISS = "com.example.calendaralarm.DISMISS"
-        const val ACTION_SNOOZE  = "com.example.calendaralarm.SNOOZE"
-        const val ACTION_JOIN    = "com.example.calendaralarm.JOIN"
+        const val ACTION_DISMISS              = "com.example.calendaralarm.DISMISS"
+        const val ACTION_SNOOZE               = "com.example.calendaralarm.SNOOZE"
+        const val ACTION_NOTIFICATION_DELETED = "com.example.calendaralarm.NOTIFICATION_DELETED"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        context.stopService(Intent(context, AlarmService::class.java))
-        context.getSystemService(NotificationManager::class.java)
-            .cancel(NotificationHelper.ALARM_NOTIF_ID)
-
+        val id = alarmIdOf(intent, "ActionReceiver") ?: return
+        AppLog.i("ActionReceiver: ${intent.action} $id")
+        val controller = AlarmController.from(context)
         when (intent.action) {
-            ACTION_SNOOZE -> {
-                val prefs      = Prefs(context)
-                val eventsJson = intent.getStringExtra("events_json") ?: return
-                val maxStartMs = AlarmScheduler.maxStartTimeMsFromJson(eventsJson)
-                AlarmScheduler.scheduleSnooze(
-                    context,
-                    AlarmScheduler.computeSnoozeUntilMs(maxStartMs, prefs),
-                    eventsJson
-                )
-            }
-            ACTION_JOIN -> {
-                val url = intent.getStringExtra("meeting_url") ?: return
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                )
-            }
+            ACTION_DISMISS              -> controller.dismiss(id)
+            ACTION_SNOOZE               -> controller.snooze(id)
+            ACTION_NOTIFICATION_DELETED -> controller.onNotificationDeleted(id)
+            else -> error("ActionReceiver: unexpected action ${intent.action}")
         }
     }
 }

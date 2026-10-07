@@ -21,7 +21,7 @@ fun planAlarms(
     quietHoursStartMinutes: Int,
     quietHoursEndMinutes: Int,
     nowMs: Long,
-    raisedAlarmKeys: Set<String> = emptySet()
+    handledAlarmKeys: Set<String> = emptySet()
 ): List<PlannedAlarm> {
     val defaultQuietHoursMode = if (quietHoursAlarmEnabled)
         FilterAction.QuietHoursMode.EARLY else FilterAction.QuietHoursMode.SILENT
@@ -33,13 +33,12 @@ fun planAlarms(
         val ef = flags[event] ?: FilterEngine.EventFlags()
         if (!ef.alarmEnabled) continue
 
-        val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val endMs   = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val alarmEvent = AlarmEvent.of(event)
+        val startMs = alarmEvent.startMs
+        val endMs   = alarmEvent.endMs
 
-        // Skip events whose alarm has already been raised this cycle.
-        val eventAlarmKey = "${event.uid}_${startMs}_${endMs}"
-        if (eventAlarmKey in raisedAlarmKeys) {
-            AppLog.i("planAlarms: skip '${event.summary}' (already raised)")
+        if (alarmEvent.key in handledAlarmKeys) {
+            AppLog.i("planAlarms: skip '${event.summary}' (alarm already raised)")
             continue
         }
 
@@ -83,8 +82,8 @@ fun planAlarms(
         }
 
         // If the intended trigger is in the past but the event hasn't ended, fire immediately
-        // rather than dropping the alarm. This covers the race where PollReceiver cancelled a
-        // pending alarm moments before it was due to fire.
+        // rather than dropping the alarm. This covers a trigger that is due but not yet delivered
+        // when a schedule sync runs.
         val effectiveTriggerMs = if (triggerMs > nowMs) {
             triggerMs
         } else {

@@ -12,12 +12,8 @@ import java.time.ZoneOffset
 import java.util.TimeZone
 
 /**
- * Regression test for Bug B: PollReceiver skips scheduleAll whenever the ICS cache timestamp
- * is unchanged (maxCacheTs <= lastAlarmScheduleTs), so events that enter the 25-hour window
- * after the first poll are never scheduled.
- *
- * The fix should ensure that time advancing into a new event's window causes scheduleAll to
- * run even when the ICS content has not changed.
+ * Events that enter the 25-hour alarm window after the first poll are scheduled on time,
+ * even when the ICS content never changes.
  */
 @RunWith(RobolectricTestRunner::class)
 @LooperMode(LooperMode.Mode.PAUSED)
@@ -72,8 +68,6 @@ class AlarmSchedulingTest {
         // Boot at 07:00 Jun 18. The 25-hour parse window is [07:00 Jun 18, 08:00 Jun 19].
         // The event at 09:00 Jun 19 is just outside this window on the first poll.
         // As time advances, the event enters the window, and the alarm should fire at 08:55.
-        // Bug B: every subsequent poll skips scheduleAll because the ICS file hasn't changed,
-        // so the alarm is never scheduled and fires late (or not at all).
         sim.boot()
         sim.runUntil(utcMs(june19, 9, 0))
 

@@ -270,6 +270,7 @@ class FilterSettingsActivity : AppCompatActivity() {
             actions  = readActions().toMutableList()
         )
         prefs.saveFilter(filter)
+        AlarmScheduler.schedulePoll(this, 0L)
         Toast.makeText(this, if (isNew) "Filter added" else "Saved", Toast.LENGTH_SHORT).show()
         finish()
     }
@@ -278,7 +279,11 @@ class FilterSettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Remove filter")
             .setMessage("Remove this filter?")
-            .setPositiveButton("Remove") { _, _ -> filterId?.let { prefs.deleteFilter(it) }; finish() }
+            .setPositiveButton("Remove") { _, _ ->
+                filterId?.let { prefs.deleteFilter(it) }
+                AlarmScheduler.schedulePoll(this, 0L)
+                finish()
+            }
             .setNegativeButton("Cancel", null)
             .show()
     }

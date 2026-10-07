@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 object IcsFetcher {
 
-    /** What callers (PollReceiver, MainActivity) receive per source. */
+    /** What callers (ScheduleSync, MainActivity) receive per source. */
     data class FetchedSource(val url: String, val text: String, val cacheTimestamp: Long)
 
     private val mutexes = ConcurrentHashMap<String, Mutex>()
@@ -75,9 +75,8 @@ object IcsFetcher {
         }
 
         val fetchOk = doGet(url, id, prefs, cacheFile)
-
-        if (!fetchOk) return null
         if (!cacheFile.exists()) return null
+        if (!fetchOk) AppLog.w("IcsFetcher [$id]: fetch failed, using cached copy")
         return cacheFile.toResult(url)
     }
 

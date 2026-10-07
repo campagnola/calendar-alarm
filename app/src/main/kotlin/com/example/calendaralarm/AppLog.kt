@@ -3,7 +3,8 @@ package com.example.calendaralarm
 import android.content.Context
 import android.util.Log
 import java.io.File
-import java.time.LocalDateTime
+import java.io.IOException
+import java.time.OffsetDateTime
 
 object AppLog {
     private const val TAG = "CalAlarm"
@@ -12,7 +13,7 @@ object AppLog {
     @Volatile private var logFile: File? = null
 
     fun init(context: Context) {
-        if (logFile == null) logFile = File(context.applicationContext.filesDir, "calarm.log")
+        logFile = File(context.filesDir, "calarm.log")
     }
 
     fun i(msg: String) { Log.i(TAG, msg); append("I", msg) }
@@ -21,13 +22,16 @@ object AppLog {
 
     private fun append(level: String, msg: String) {
         val f = logFile ?: return
-        val line = "${LocalDateTime.now()}  $level  $msg\n"
+        val line = "${OffsetDateTime.now()}  $level  $msg\n"
         try {
             synchronized(this) {
                 f.appendText(line)
                 if (f.length() > MAX_BYTES) trim(f)
             }
-        } catch (_: Exception) {}
+        } catch (e: IOException) {
+            // A file-log failure must not crash the alarm path; surface it in logcat instead.
+            Log.e(TAG, "AppLog: write to ${f.path} failed", e)
+        }
     }
 
     private fun trim(f: File) {

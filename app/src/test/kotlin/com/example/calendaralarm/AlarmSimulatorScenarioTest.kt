@@ -1,14 +1,28 @@
 package com.example.calendaralarm
 
+import android.app.AlarmManager
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.widget.Button
+import com.example.calendaralarm.AlarmInstance.State
+import com.example.calendaralarm.AlarmSimulator.Companion.ics
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.LooperMode
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -77,14 +91,14 @@ class AlarmSimulatorScenarioTest {
         sim.boot()
 
         // Original alarm fires at 08:55 (5 min before 09:00 start)
-        sim.runUntil(utcMs(june18, 9, 5))
+        sim.runUntil(utcMs(june18, 9, 0))
         assertEquals("original alarm fired once", 1, sim.firedAlarms().size)
         assertEquals("original alarm is for the team meeting", "meeting@test.example", sim.firedAlarms()[0].uid)
+        sim.dismiss(sim.firedAlarms()[0].alarmId)
 
         // Calendar reschedules the event to 10:00 AM — same UID, new start time.
-        // The alarm key encodes start and end ms, so raisedAlarmKeys no longer matches.
+        // The alarm key encodes start and end ms, so the dismissed instance no longer matches.
         sim.setIcsContent(rescheduledIcs)
-        Prefs(context).lastAlarmScheduleTs = 0L
         sim.runUntil(utcMs(june18, 10, 5))
 
         assertEquals("second alarm fired for the rescheduled event", 2, sim.firedAlarms().size)
@@ -199,69 +213,266 @@ class AlarmSimulatorScenarioTest {
         )
     }
 
-    // ── Test 5: Quiet hours config reset ─────────────────────────────────────────
-    // Changing quiet hours alone does NOT re-fire a dismissed alarm;
-    // only clearing raisedAlarmKeys (and forcing a reschedule) does.
+    // ── Test 5: Dismissed instance blocks re-fire ─────────────────────────────────
+    // Changing quiet hours re-plans the event, but its dismissed alarm instance keeps it from firing again.
 
-    @Test fun `resetting quiet hours alone does not re-fire a dismissed alarm but clearing raisedAlarmKeys does`() {
+    @Test fun `a dismissed alarm does not fire again when quiet hours change`() {
         // Event at 06:30 Jun 18. Default quiet hours are 22:00–07:00 (EARLY mode).
         // 06:30 falls inside quiet hours → alarm is scheduled at 22:00 Jun 17
         // (the preceding start of the quiet period that contains 06:30 AM).
-        val ics = """
-            BEGIN:VCALENDAR
-            VERSION:2.0
-            PRODID:-//Test//Test//EN
-            BEGIN:VEVENT
-            UID:early-bird@test.example
-            DTSTART:20260618T063000Z
-            DTEND:20260618T073000Z
-            SUMMARY:Early Bird Meeting
-            END:VEVENT
-            END:VCALENDAR
-        """.trimIndent()
-
-        sim.setIcsContent(ics)
+        sim.setIcsContent(ics(Triple("early-bird@test.example", "20260618T063000Z", "20260618T073000Z")))
         sim.setUp(utcMs(june17, 18, 0))
         sim.boot()
 
-        // ── Phase 1: quiet-hours alarm fires at 22:00 Jun 17 ─────────────────────
         sim.runUntil(utcMs(june17, 22, 5))
-        assertEquals("phase 1: quiet alarm fired", 1, sim.firedAlarms().size)
-        assertEquals("early-bird@test.example", sim.firedAlarms()[0].uid)
-        assertEquals(
-            "phase 1: alarm fired at 22:00 Jun 17 (preceding quiet hours start)",
-            utcMs(june17, 22, 0), sim.firedAlarms()[0].firedAtMs
-        )
+        assertEquals("quiet-hours alarm fired", 1, sim.firedAlarms().size)
+        assertEquals(utcMs(june17, 22, 0), sim.firedAlarms()[0].firedAtMs)
+        val id = sim.firedAlarms()[0].alarmId
+        sim.dismiss(id)
 
-        // ── Phase 2: narrow quiet hours so 06:30 is now outside them ─────────────
-        // With quietHoursEnd = 06:00, quiet hours become 22:00–06:00.
-        // 06:30 AM is no longer in quiet hours, so a fresh alarm would be scheduled
-        // at 06:25 AM (5 min advance). But raisedAlarmKeys still contains the key
-        // from the dismissed quiet-hours alarm → planAlarms skips it.
+        // With quietHoursEnd = 06:00, 06:30 is outside quiet hours, so a fresh plan would ring at 06:25.
         Prefs(context).quietHoursEndMinutes = 6 * 60
-        Prefs(context).lastAlarmScheduleTs = 0L
-        sim.runUntil(utcMs(june18, 6, 25))  // advance past where the new alarm would trigger
-        assertEquals(
-            "phase 2: alarm does not re-fire despite quiet hours change — raisedAlarmKeys blocks it",
-            1, sim.firedAlarms().size
-        )
-
-        // ── Phase 3: clear raisedAlarmKeys and force a reschedule ────────────────
-        // Now planAlarms sees the event as unraised and outside quiet hours →
-        // schedules it. The trigger (06:25) is in the past → fires late.
-        Prefs(context).raisedAlarmKeys = emptySet()
-        Prefs(context).lastAlarmScheduleTs = 0L
         sim.runUntil(utcMs(june18, 6, 45))
-        assertEquals("phase 3: alarm fires again after clearing raisedAlarmKeys", 2, sim.firedAlarms().size)
-        val refired = sim.firedAlarms()[1]
-        assertEquals("re-fired alarm is for the same event", "early-bird@test.example", refired.uid)
-        assertTrue(
-            "re-fired alarm is at or after 06:25 (the original trigger time)",
-            refired.firedAtMs >= utcMs(june18, 6, 25)
-        )
-        assertTrue(
-            "re-fired alarm is before 06:45 (confirmed late, not missing)",
-            refired.firedAtMs <= utcMs(june18, 6, 45)
-        )
+
+        assertEquals("the dismissed alarm does not fire again", 1, sim.firedAlarms().size)
+        assertEquals(State.DISMISSED, sim.instance(id).state)
+    }
+
+    // ── Alarm instance lifecycle ──────────────────────────────────────────────────
+    // Boot at 07:00 Jun 18; polls run every 15 minutes from then on.
+
+    private val standup = Triple("standup", "20260618T090000Z", "20260618T100000Z")   // rings 08:55
+    private val review  = Triple("review", "20260618T090200Z", "20260618T100000Z")    // rings 08:57
+    private val retro   = Triple("retro", "20260618T093000Z", "20260618T100000Z")     // rings 09:25
+
+    private fun bootWith(vararg events: Triple<String, String, String>) {
+        sim.setIcsContent(ics(*events))
+        sim.setUp(utcMs(june18, 7, 0))
+        sim.boot()
+    }
+
+    private fun idOf(uid: String) = sim.firedAlarms().last { it.uid == uid }.alarmId
+
+    @Test fun `a ringing alarm rings until the ring timeout makes it missed`() {
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+        assertEquals(listOf(id), sim.ringingIds())
+        assertEquals(setOf(id), sim.notifiedRingingIds())
+        assertTrue(sim.serviceRunning())
+        assertTrue(sim.isVibrating())
+
+        sim.runUntil(utcMs(june18, 9, 6))
+
+        assertEquals(State.MISSED, sim.instance(id).state)
+        assertEquals(emptySet<String>(), sim.notifiedRingingIds())
+        assertFalse(sim.serviceRunning())
+        assertFalse(sim.isVibrating())
+        val missed = sim.missedNotification(id)!!
+        assertEquals("Missed alarm: standup", missed.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(0, missed.flags and Notification.FLAG_ONGOING_EVENT)
+        sim.runUntil(utcMs(june18, 9, 50))
+        assertEquals("a missed alarm does not fire again", 1, sim.firedAlarms().size)
+    }
+
+    @Test fun `swiping the notification keeps the alarm ringing and re-posts it under the same id`() {
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+
+        sim.swipeNotification(id)
+
+        assertEquals(State.RINGING, sim.instance(id).state)
+        assertNotNull(sim.ringingNotification(id))
+        assertEquals(setOf(id), sim.notifiedRingingIds())
+    }
+
+    @Test fun `process killed while ringing is restored to ringing by the next poll`() {
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+
+        sim.killProcess()
+        assertNull(sim.ringingNotification(id))
+        assertEquals(State.RINGING, sim.instance(id).state)
+
+        sim.runUntil(utcMs(june18, 9, 1))  // poll at 09:00
+        assertTrue(sim.serviceRunning())
+        assertEquals(setOf(id), sim.notifiedRingingIds())
+        assertEquals("restoring is not a second alarm", 1, sim.firedAlarms().size)
+    }
+
+    @Test fun `process killed while ringing is restored by the sticky service restart`() {
+        bootWith(standup, review)
+        sim.runUntil(utcMs(june18, 8, 58))
+        val ids = setOf(idOf("standup"), idOf("review"))
+
+        sim.killProcess()
+        assertFalse(sim.serviceRunning())
+        sim.restartKilledService()
+
+        assertTrue(sim.serviceRunning())
+        assertTrue(sim.isVibrating())
+        assertEquals(ids, sim.notifiedRingingIds())
+        assertEquals(ids, sim.ringingIds().toSet())
+    }
+
+    @Test fun `reboot with a pending snooze re-arms the snooze`() {
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+        sim.snooze(id)  // until 08:59: 3/4 of the 5 minutes from ringing to the start, but at least 4 minutes
+        assertEquals(State.SNOOZED, sim.instance(id).state)
+        assertNull(sim.ringingNotification(id))
+
+        sim.runUntil(utcMs(june18, 8, 57))
+        sim.reboot()
+        assertTrue(id in sim.pendingTriggerIds())
+
+        sim.runUntil(utcMs(june18, 9, 1))
+        assertEquals(State.RINGING, sim.instance(id).state)
+        assertEquals(listOf(utcMs(june18, 8, 55), utcMs(june18, 8, 59)), sim.firedAlarms().map { it.firedAtMs })
+        assertEquals(setOf(id), sim.notifiedRingingIds())
+    }
+
+    @Test fun `the snooze time shown is the snooze time used`() {
+        bootWith(retro)
+        sim.runUntil(utcMs(june18, 9, 25))
+        val id = idOf("retro")
+        val label = sim.ringingNotification(id)!!.actions.single {
+            Shadows.shadowOf(it.actionIntent).savedIntent.action == ActionReceiver.ACTION_SNOOZE
+        }.title.toString()
+
+        sim.runUntil(utcMs(june18, 9, 27))
+        sim.snooze(id)
+
+        assertEquals("Snooze until ${formatTime(context, sim.instance(id).triggerMs)}", label)
+    }
+
+    @Test fun `two ringing alarms have their own notifications and are dismissed independently`() {
+        bootWith(standup, review)
+        sim.runUntil(utcMs(june18, 8, 58))
+        val (first, second) = listOf(idOf("standup"), idOf("review"))
+        assertEquals(setOf(first, second), sim.ringingIds().toSet())
+        assertEquals(setOf(first, second), sim.notifiedRingingIds())
+        assertNotEquals(NotificationHelper.ringingNotificationId(first), NotificationHelper.ringingNotificationId(second))
+
+        sim.dismiss(second)
+        assertEquals(listOf(first), sim.ringingIds())
+        assertEquals(setOf(first), sim.notifiedRingingIds())
+        assertTrue(sim.serviceRunning())
+        assertTrue(sim.isVibrating())
+
+        sim.dismiss(first)
+        assertEquals(emptyList<String>(), sim.ringingIds())
+        assertEquals(emptySet<String>(), sim.notifiedRingingIds())
+        assertFalse(sim.serviceRunning())
+        assertFalse(sim.isVibrating())
+    }
+
+    @Test fun `dismiss from a stale notification action does not dismiss a newer alarm`() {
+        bootWith(standup, retro)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val old = idOf("standup")
+        val staleDismiss = sim.actionIntent(old, ActionReceiver.ACTION_DISMISS)
+        sim.dismiss(old)
+
+        sim.runUntil(utcMs(june18, 9, 26))
+        val newer = idOf("retro")
+        sim.deliverAction(staleDismiss)
+
+        assertEquals(listOf(newer), sim.ringingIds())
+        assertEquals(setOf(newer), sim.notifiedRingingIds())
+    }
+
+    @Test fun `dismiss from the notification closes the alarm screen`() {
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+        val screen = Robolectric.buildActivity(AlarmActivity::class.java,
+            Intent(context, AlarmActivity::class.java).putExtra(EXTRA_ALARM_ID, id)).setup().get()
+        assertFalse(screen.isFinishing)
+
+        sim.dismiss(id)
+
+        assertTrue(screen.isFinishing)
+    }
+
+    @Test fun `dismiss from a stale alarm screen does not dismiss a newer alarm`() {
+        bootWith(standup, retro)
+        sim.runUntil(utcMs(june18, 8, 56))
+        val old = idOf("standup")
+        val staleScreen = Robolectric.buildActivity(AlarmActivity::class.java,
+            Intent(context, AlarmActivity::class.java).putExtra(EXTRA_ALARM_ID, old)).setup().get()
+        sim.dismiss(old)  // from the notification
+
+        sim.runUntil(utcMs(june18, 9, 26))
+        val newer = idOf("retro")
+        staleScreen.findViewById<Button>(R.id.dismissButton).performClick()
+
+        assertEquals(listOf(newer), sim.ringingIds())
+        assertEquals(setOf(newer), sim.notifiedRingingIds())
+    }
+
+    @Test fun `an alarm whose service fails to start is not treated as handled`() {
+        bootWith(standup)
+        sim.failNextServiceStart()
+        sim.runUntil(utcMs(june18, 8, 56))
+        val id = idOf("standup")
+        assertEquals(1, sim.deliveryFailures().size)
+        assertEquals(State.RINGING, sim.instance(id).state)
+        assertFalse(sim.serviceRunning())
+
+        sim.runUntil(utcMs(june18, 9, 1))  // poll at 09:00 retries
+
+        assertTrue(sim.serviceRunning())
+        assertEquals(setOf(id), sim.notifiedRingingIds())
+    }
+
+    @Test fun `alarms raised before the upgrade are migrated as dismissed and do not fire again`() {
+        val startMs = utcMs(june18, 9, 0)
+        context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE).edit()
+            .putStringSet("raised_alarm_keys", setOf(AlarmKey.of("standup", startMs, utcMs(june18, 10, 0))))
+            .putStringSet("active_alarm_codes", setOf("123"))
+            .commit()
+
+        migrateLegacyAlarmState(context)
+        bootWith(standup)
+        sim.runUntil(utcMs(june18, 9, 30))
+
+        assertEquals(emptyList<FiredAlarm>(), sim.firedAlarms())
+        assertNull(Prefs(context).legacyAlarmState())
+    }
+
+    @Test fun `migration cancels the legacy snooze and alarm notification`() {
+        val am = context.getSystemService(AlarmManager::class.java)
+        val nm = context.getSystemService(NotificationManager::class.java)
+        sim.setUp(utcMs(june18, 8, 56))
+        val legacySnooze = PendingIntent.getBroadcast(context, "standup".hashCode() xor 0xABCD,
+            Intent(context, AlarmReceiver::class.java).putExtra("events_json", "[]"),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, utcMs(june18, 9, 0), legacySnooze)
+        nm.notify(42, Notification.Builder(context, NotificationHelper.CHANNEL_ALARM).build())
+        context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE).edit()
+            .putStringSet("raised_alarm_keys", setOf(AlarmKey.of("standup", utcMs(june18, 9, 0), utcMs(june18, 10, 0))))
+            .commit()
+
+        migrateLegacyAlarmState(context)
+
+        assertEquals(emptyList<Any>(), Shadows.shadowOf(am).scheduledAlarms)
+        assertNull(Shadows.shadowOf(nm).getNotification(42))
+    }
+
+    @Test fun `migration skips raised keys from older key formats`() {
+        sim.setUp(utcMs(june18, 8, 56))
+        val current = AlarmKey.of("standup", utcMs(june18, 9, 0), utcMs(june18, 10, 0))
+        context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE).edit()
+            .putStringSet("raised_alarm_keys", setOf(current, "040000008200E000", "uid_${utcMs(june18, 9, 0)}"))
+            .commit()
+
+        migrateLegacyAlarmState(context)
+
+        assertNull(Prefs(context).legacyAlarmState())
+        assertEquals(1, AlarmStore.from(context).all().size)
     }
 }
