@@ -19,16 +19,14 @@ data class EventFilter(
 
     companion object {
         fun fromJson(json: JSONObject): EventFilter {
-            val criteria = mutableListOf<FilterCriterion>()
-            val ca = json.optJSONArray("criteria") ?: JSONArray()
-            for (i in 0 until ca.length()) FilterCriterion.fromJson(ca.getJSONObject(i))?.let { criteria.add(it) }
+            val ca = json.getJSONArray("criteria")
+            val criteria = (0 until ca.length()).mapTo(mutableListOf()) { FilterCriterion.fromJson(ca.getJSONObject(it)) }
 
-            val actions = mutableListOf<FilterAction>()
-            val aa = json.optJSONArray("actions") ?: JSONArray()
-            for (i in 0 until aa.length()) FilterAction.fromJson(aa.getJSONObject(i))?.let { actions.add(it) }
+            val aa = json.getJSONArray("actions")
+            val actions = (0 until aa.length()).mapTo(mutableListOf()) { FilterAction.fromJson(aa.getJSONObject(it)) }
 
             return EventFilter(
-                id       = json.optString("id", UUID.randomUUID().toString()),
+                id       = json.getString("id"),
                 name     = json.optString("name", ""),
                 criteria = criteria,
                 actions  = actions
@@ -56,7 +54,7 @@ sealed class FilterCriterion {
     }
 
     companion object {
-        fun fromJson(json: JSONObject): FilterCriterion? = runCatching {
+        fun fromJson(json: JSONObject): FilterCriterion =
             when (val type = json.getString("type")) {
                 "source" -> SourceCriterion(json.getString("sourceId"))
                 else     -> StringCriterion(
@@ -65,7 +63,6 @@ sealed class FilterCriterion {
                     json.optString("value", "")
                 )
             }
-        }.getOrNull()
     }
 }
 
@@ -90,8 +87,8 @@ sealed class FilterAction {
     }
 
     companion object {
-        fun fromJson(json: JSONObject): FilterAction? = runCatching {
-            when (json.getString("type")) {
+        fun fromJson(json: JSONObject): FilterAction =
+            when (val type = json.getString("type")) {
                 "visibility" -> VisibilityAction(json.getBoolean("show"))
                 "alarm"      -> AlarmAction(json.getBoolean("enable"))
                 "advance"    -> AdvanceAction(json.getInt("minutes"),
@@ -99,8 +96,7 @@ sealed class FilterAction {
                 "quiet_hours" -> QuietHoursAction(
                     QuietHoursMode.valueOf(json.getString("mode"))
                 )
-                else         -> null
+                else         -> throw IllegalArgumentException("unknown filter action type '$type'")
             }
-        }.getOrNull()
     }
 }

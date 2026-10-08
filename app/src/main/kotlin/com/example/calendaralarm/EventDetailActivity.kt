@@ -146,31 +146,22 @@ class EventDetailActivity : AppCompatActivity() {
     }
 
     private fun updateAlarmPreferenceStatus() {
-        val prefsByKey = prefs.eventPreferences.associateBy { it.key }
-        val eventPref = prefsByKey[EventPreference.eventKey(event)]?.alarmEnabled
-        val seriesPref = if (event.isSeries) {
-            prefsByKey[EventPreference.seriesKey(event)]?.alarmEnabled
+        val override = FilterEngine.alarmOverride(event, prefs.eventPreferences.associateBy { it.key })
+        binding.alarmPreferenceStatus.text = if (override == null) {
+            "Using filter and default alarm settings."
         } else {
-            null
-        }
-
-        binding.alarmPreferenceStatus.text = when {
-            eventPref == true -> "Alarm enabled for this event."
-            eventPref == false -> "Alarm disabled for this event."
-            seriesPref == true -> "Alarm enabled for this series."
-            seriesPref == false -> "Alarm disabled for this series."
-            else -> "Using filter and default alarm settings."
+            val (scope, enabled) = override
+            val state = if (enabled) "enabled" else "disabled"
+            val target = when (scope) {
+                EventPreference.Scope.EVENT  -> "event"
+                EventPreference.Scope.SERIES -> "series"
+            }
+            "Alarm $state for this $target."
         }
     }
 
     private fun saveAlarmPreference(scope: EventPreference.Scope, alarmEnabled: Boolean) {
-        val key = when (scope) {
-            EventPreference.Scope.EVENT -> EventPreference.eventKey(event)
-            EventPreference.Scope.SERIES -> EventPreference.seriesKey(event)
-        }
-        val endMs = event.end.toEpochMilli()
-        prefs.saveEventPreference(EventPreference(key, scope, alarmEnabled, endMs))
-        AlarmScheduler.schedulePoll(this, 0L)
+        setEventAlarm(this, event, scope, alarmEnabled)
         updateAlarmPreferenceStatus()
         Toast.makeText(this, "Alarm preference saved", Toast.LENGTH_SHORT).show()
     }

@@ -155,4 +155,19 @@ class AlarmPlannerTest {
             assertEquals("not a quiet-hours alarm", false, isQuietHoursAlarm)
         }
     }
+
+    @Test fun `an event's alarm choice overrides its series, which overrides filters`() {
+        val ev = event(tomorrow, 9).copy(isSeries = true)
+        val muteAll = EventFilter(actions = mutableListOf(FilterAction.AlarmAction(false)))
+        fun enabled(vararg prefs: EventPreference) =
+            FilterEngine.effectiveFlags(listOf(ev), listOf(muteAll), prefs.toList()).getValue(ev).alarmEnabled
+
+        val seriesOn = EventPreference.of(ev, EventPreference.Scope.SERIES, true)
+        val eventOff = EventPreference.of(ev, EventPreference.Scope.EVENT, false)
+        assertEquals(false, enabled())
+        assertEquals(true, enabled(seriesOn))
+        assertEquals(false, enabled(seriesOn, eventOff))
+        assertEquals(EventPreference.Scope.EVENT to false,
+                     FilterEngine.alarmOverride(ev, listOf(seriesOn, eventOff).associateBy { it.key }))
+    }
 }

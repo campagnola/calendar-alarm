@@ -3,6 +3,8 @@ package com.example.calendaralarm
 import android.app.NotificationManager
 import android.os.Looper
 import android.view.View
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import com.example.calendaralarm.AlarmSimulator.Companion.ics
 import kotlinx.coroutines.runBlocking
@@ -160,6 +162,75 @@ class ScheduleSyncTest {
         assertEquals(listOf(tomorrowTrigger), sim.pendingEventAlarmTriggers())
         val problem = Prefs(context).feedStatus(Prefs(context).urlId(sim.url(AlarmSimulator.DEFAULT_PATH))).problem
         assertTrue(problem.toString(), problem!!.contains("'bad'"))
+    }
+
+    private fun openMainActivity(): MainActivity {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        idleUntil { activity.findViewById<TextView>(R.id.statusText).visibility == View.GONE }
+        return activity
+    }
+
+    private fun MainActivity.firstCard(): View =
+        findViewById<LinearLayout>(R.id.scheduleContainer).getChildAt(0)
+
+    @Test fun `the bell toggles the event's alarm like the event page does`() {
+        val todayTrigger = utcMs(june18, 13, 55)
+        sim.setIcsContent(ics(todayEvent))
+        bootAndFirstPoll()
+        assertEquals(listOf(todayTrigger), sim.pendingEventAlarmTriggers())
+
+        val activity = openMainActivity()
+        val bell = activity.firstCard().findViewById<ImageView>(R.id.bellIcon)
+        assertEquals(1f, bell.alpha)
+        bell.performClick()
+
+        val pref = Prefs(context).eventPreferences.single()
+        assertEquals(EventPreference.Scope.EVENT, pref.scope)
+        assertEquals(false, pref.alarmEnabled)
+        sim.runUntil(startMs + 2 * 60_000L)
+        assertEquals("the resync drops the alarm", emptyList<Long>(), sim.pendingEventAlarmTriggers())
+        idleUntil { activity.firstCard().findViewById<ImageView>(R.id.bellIcon).alpha == 0.3f }
+
+        // The event page shows the bell's choice and changes it through the same path.
+        activity.firstCard().performClick()
+        val detailIntent = shadowOf(activity).nextStartedActivity
+        val event = CalendarEvent.fromJson(detailIntent.getStringExtra(EventDetailActivity.EXTRA_EVENT_JSON)!!)
+        assertEquals(EventPreference.of(event, EventPreference.Scope.EVENT, false).key, pref.key)
+        val detail = Robolectric.buildActivity(EventDetailActivity::class.java, detailIntent).setup().get()
+        assertEquals("Alarm disabled for this event.",
+                     detail.findViewById<TextView>(R.id.alarmPreferenceStatus).text.toString())
+        detail.findViewById<View>(R.id.enableEventAlarmButton).performClick()
+        assertEquals(EventPreference.of(event, EventPreference.Scope.EVENT, true), Prefs(context).eventPreferences.single())
+        sim.runUntil(startMs + 3 * 60_000L)
+        assertEquals(listOf(todayTrigger), sim.pendingEventAlarmTriggers())
+    }
+
+    @Test fun `the bell's tap target is a square as tall as a one-line card`() {
+        sim.setIcsContent(ics(todayEvent))
+        bootAndFirstPoll()
+
+        val card = openMainActivity().firstCard()
+        idleUntil { card.height > 0 }
+        val bell = card.findViewById<ImageView>(R.id.bellIcon)
+        assertEquals("the bell does not stretch the card", (card as LinearLayout).getChildAt(0).height, card.height)
+        assertEquals(card.height, bell.height)
+        assertEquals(bell.height, bell.width)
+    }
+
+    @Test fun `unreadable filters are shown and keep existing alarms`() {
+        sim.setIcsContent(ics(tomorrowEvent))
+        bootAndFirstPoll()
+        context.getSharedPreferences("cal_alarm", 0).edit()
+            .putString("filter_ids", "f1").putString("filter_data_f1", "{not json").commit()
+        sim.runUntil(startMs + 20 * 60_000L)
+
+        assertEquals(listOf(tomorrowTrigger), sim.pendingEventAlarmTriggers())
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val banner = activity.findViewById<TextView>(R.id.feedProblemsText)
+        idleUntil { banner.visibility == View.VISIBLE }
+        assertTrue(banner.text.toString(), banner.text.contains("filter_data_f1"))
+        assertEquals("Event settings could not be read.",
+                     activity.findViewById<TextView>(R.id.statusText).text.toString())
     }
 
     @Test fun `a sync with no calendar data keeps existing alarms`() {

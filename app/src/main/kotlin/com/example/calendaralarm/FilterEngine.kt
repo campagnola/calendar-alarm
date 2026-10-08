@@ -41,17 +41,18 @@ object FilterEngine {
     ): Map<CalendarEvent, EventFlags> {
         val prefByKey = preferences.associateBy { it.key }
         return events.associateWith { event ->
-            var flags = evaluate(event, filters)
-            if (event.isSeries) {
-                prefByKey[EventPreference.seriesKey(event)]?.alarmEnabled?.let {
-                    flags = flags.copy(alarmEnabled = it)
-                }
-            }
-            prefByKey[EventPreference.eventKey(event)]?.alarmEnabled?.let {
-                flags = flags.copy(alarmEnabled = it)
-            }
-            flags
+            val flags = evaluate(event, filters)
+            alarmOverride(event, prefByKey)?.let { (_, enabled) -> flags.copy(alarmEnabled = enabled) } ?: flags
         }
+    }
+
+    /** The preference overriding [event]'s filter alarm setting, as (scope, enabled): per-event wins over series. */
+    fun alarmOverride(event: CalendarEvent, prefByKey: Map<String, EventPreference>): Pair<EventPreference.Scope, Boolean>? {
+        prefByKey[EventPreference.eventKey(event)]?.alarmEnabled?.let { return EventPreference.Scope.EVENT to it }
+        if (event.isSeries) {
+            prefByKey[EventPreference.seriesKey(event)]?.alarmEnabled?.let { return EventPreference.Scope.SERIES to it }
+        }
+        return null
     }
 
     /** True if the event satisfies all criteria (empty list = matches everything). */

@@ -120,9 +120,10 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             // Returns events for the visible window paired with their alarm-enabled flag,
-            // or null on total fetch failure.
+            // or null if the settings are unreadable or every fetch failed.
             val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
                 if (syncAlarms) ScheduleSync.run(this@MainActivity, "user refresh")
+                val (filters, preferences) = ScheduleSync.readEventSettings(prefs) ?: return@withContext null
 
                 val zone        = ZoneId.systemDefault()
                 val visDayStart = visDay.atStartOfDay(zone).toInstant()
@@ -144,7 +145,7 @@ class MainActivity : AppCompatActivity() {
                 val allEvents = icsTexts.flatMap { (url, text) ->
                     IcsParser.parse(text, windowStart, windowEnd, prefs.urlId(url)).events
                 } + localEvents
-                val eventFlags = FilterEngine.effectiveFlags(allEvents, prefs.eventFilters, prefs.eventPreferences)
+                val eventFlags = FilterEngine.effectiveFlags(allEvents, filters, preferences)
 
                 allEvents
                     .filter { it.start >= windowStart
@@ -154,9 +155,11 @@ class MainActivity : AppCompatActivity() {
                     .map { it to eventFlags.getValue(it).alarmEnabled }
             }
 
-            showFeedProblems()
+            showSyncProblems()
             when {
-                displayEvents == null    -> showMessage("Failed to load calendar. Check URL and network.")
+                displayEvents == null    -> showMessage(
+                    if (prefs.settingsProblem != null) "Event settings could not be read."
+                    else "Failed to load calendar. Check URL and network.")
                 displayEvents.isEmpty()  ->
                     showMessage(if (visDay == today) "No events today." else "No events tomorrow.")
                 else -> {
@@ -195,6 +198,16 @@ class MainActivity : AppCompatActivity() {
         binding.scheduleContainer.addView(tv)
     }
 
+    /** Measured height of an event card whose title and time each fit on one line. */
+    private val singleLineCardHeight: Int by lazy {
+        val card = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
+        card.findViewById<TextView>(R.id.eventTitle).text = "X"
+        card.findViewById<TextView>(R.id.eventTime).text = "X"
+        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        card.measure(unspecified, unspecified)
+        card.measuredHeight
+    }
+
     private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter,
                              now: Instant, alarmEnabled: Boolean) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
@@ -216,9 +229,14 @@ class MainActivity : AppCompatActivity() {
             else "${event.localStart.format(fmt)} – ${event.localEnd.format(fmt)}"
 
         val bellIcon = view.findViewById<ImageView>(R.id.bellIcon)
-        bellIcon.visibility = View.VISIBLE
+        bellIcon.layoutParams.width  = singleLineCardHeight
+        bellIcon.layoutParams.height = singleLineCardHeight
         bellIcon.alpha = if (alarmEnabled) 1f else 0.3f
         bellIcon.contentDescription = if (alarmEnabled) "Alarm enabled" else "Alarm disabled"
+        bellIcon.setOnClickListener {
+            setEventAlarm(this, event, EventPreference.Scope.EVENT, !alarmEnabled)
+            loadSchedule(silent = true)
+        }
 
         val locationView = view.findViewById<TextView>(R.id.eventLocation)
         if (event.location.isNotEmpty()) {
@@ -239,9 +257,13 @@ class MainActivity : AppCompatActivity() {
         binding.scheduleContainer.addView(view)
     }
 
-    /** Lists the feeds whose latest sync failed; ScheduleSync keeps each [FeedStatus] current. */
-    private fun showFeedProblems() {
-        val problems = prefs.icsSources.mapNotNull { url ->
+    /**
+     * Lists unreadable settings and the feeds whose latest sync failed; ScheduleSync keeps
+     * [Prefs.settingsProblem] and each [FeedStatus] current.
+     */
+    private fun showSyncProblems() {
+        val settingsProblem = prefs.settingsProblem?.let { "⚠ Event filters and alarm choices cannot be used\n$it" }
+        val problems = listOfNotNull(settingsProblem) + prefs.icsSources.mapNotNull { url ->
             val status = prefs.feedStatus(prefs.urlId(url))
             if (status.problem == null) null
             else "⚠ ${FeedStatus.problemTitle(prefs.icsDisplayName(url))}\n${status.problemDetails()}"

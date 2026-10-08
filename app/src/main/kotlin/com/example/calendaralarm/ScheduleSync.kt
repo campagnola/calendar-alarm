@@ -45,7 +45,10 @@ object ScheduleSync {
         } else emptyList()
         val events = icsEvents + localEvents
 
-        val filters = prefs.eventFilters
+        val (filters, _) = readEventSettings(prefs) ?: run {
+            AppLog.w("ScheduleSync ($reason): settings unreadable, keeping existing alarms")
+            return@withLock
+        }
         prefs.pruneStaleEventPreferences(now)
         prefs.updateEventPreferenceLastSeen(events)
         val flags = FilterEngine.effectiveFlags(events, filters, prefs.eventPreferences)
@@ -68,4 +71,17 @@ object ScheduleSync {
         prefs.lastPollTime = System.currentTimeMillis()
         AppLog.i("ScheduleSync ($reason): done")
     }
+
+    /**
+     * The stored filters and event preferences, or null if they are unreadable. The outcome is
+     * recorded as [Prefs.settingsProblem] for the main screen to show.
+     */
+    fun readEventSettings(prefs: Prefs): Pair<List<EventFilter>, List<EventPreference>>? =
+        try {
+            (prefs.eventFilters to prefs.eventPreferences).also { prefs.settingsProblem = null }
+        } catch (e: CorruptSettingException) {
+            AppLog.e("ScheduleSync: ${e.message}")
+            prefs.settingsProblem = e.message
+            null
+        }
 }

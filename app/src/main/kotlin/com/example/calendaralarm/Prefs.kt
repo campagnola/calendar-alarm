@@ -108,11 +108,7 @@ class Prefs(context: Context) {
         get() {
             val ids = p.getString("filter_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
                 ?: return emptyList()
-            return ids.mapNotNull { id ->
-                p.getString("filter_data_$id", null)?.let { json ->
-                    runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
-                }
-            }
+            return ids.map { id -> readJson("filter_data_$id", EventFilter::fromJson) }
         }
         set(v) {
             val edit   = p.edit()
@@ -149,24 +145,18 @@ class Prefs(context: Context) {
     fun filterMatchCount(filterId: String): Int = p.getInt("filter_mc_$filterId", -1)
     fun setFilterMatchCount(filterId: String, v: Int) = p.edit().putInt("filter_mc_$filterId", v).apply()
 
-    fun getFilter(filterId: String): EventFilter? =
-        p.getString("filter_data_$filterId", null)?.let { json ->
-            runCatching { EventFilter.fromJson(JSONObject(json)) }.getOrNull()
-        }
+    fun getFilter(filterId: String): EventFilter = readJson("filter_data_$filterId", EventFilter::fromJson)
 
     // ── Per-event preferences ────────────────────────────────────────────────
 
+    // Writers hold eventPreferenceLock: each rewrites the whole list and would otherwise lose concurrent changes.
     var eventPreferences: List<EventPreference>
         get() {
             val ids = p.getString("event_pref_ids", null)?.split('\n')?.filter { it.isNotEmpty() }
                 ?: return emptyList()
-            return ids.mapNotNull { key ->
-                p.getString("event_pref_$key", null)?.let { json ->
-                    runCatching { EventPreference.fromJson(JSONObject(json)) }.getOrNull()
-                }
-            }
+            return ids.map { key -> readJson("event_pref_$key", EventPreference::fromJson) }
         }
-        set(v) {
+        private set(v) {
             val edit = p.edit()
             val oldIds = p.getString("event_pref_ids", null)?.split('\n')?.filter { it.isNotEmpty() } ?: emptyList()
             val newIds = v.map { it.key }
@@ -176,13 +166,13 @@ class Prefs(context: Context) {
             edit.apply()
         }
 
-    fun saveEventPreference(pref: EventPreference) {
+    fun saveEventPreference(pref: EventPreference) = synchronized(eventPreferenceLock) {
         val prefs = eventPreferences.associateBy { it.key }.toMutableMap()
         prefs[pref.key] = pref
         eventPreferences = prefs.values.sortedBy { it.key }
     }
 
-    fun updateEventPreferenceLastSeen(events: List<CalendarEvent>) {
+    fun updateEventPreferenceLastSeen(events: List<CalendarEvent>) = synchronized(eventPreferenceLock) {
         val stored = eventPreferences.associateBy { it.key }.toMutableMap()
         var changed = false
         for (event in events) {
@@ -207,10 +197,26 @@ class Prefs(context: Context) {
         if (changed) eventPreferences = stored.values.sortedBy { it.key }
     }
 
-    fun pruneStaleEventPreferences(now: Instant) {
+    fun pruneStaleEventPreferences(now: Instant) = synchronized(eventPreferenceLock) {
         val cutoffMs = now.minus(Duration.ofDays(7)).toEpochMilli()
-        val kept = eventPreferences.filter { it.lastSeenEndMs == 0L || it.lastSeenEndMs >= cutoffMs }
-        if (kept.size != eventPreferences.size) eventPreferences = kept
+        val stored = eventPreferences
+        val kept = stored.filter { it.lastSeenEndMs == 0L || it.lastSeenEndMs >= cutoffMs }
+        if (kept.size != stored.size) eventPreferences = kept
+    }
+
+    /** Why the stored filters or event preferences could not be read at the last attempt; null if they could. */
+    var settingsProblem: String?
+        get() = p.getString("settings_problem", null)
+        set(v) = p.edit().putString("settings_problem", v).apply()
+
+    /** Parses the JSON stored under [key], which must exist. */
+    private fun <T> readJson(key: String, parse: (JSONObject) -> T): T {
+        val json = p.getString(key, null) ?: throw CorruptSettingException(key, "missing")
+        try {
+            return parse(JSONObject(json))
+        } catch (e: Exception) {
+            throw CorruptSettingException(key, e.toString(), e)
+        }
     }
 
     // ── Local device calendar source ───────────────────────────────────────────
@@ -243,5 +249,10 @@ class Prefs(context: Context) {
 
     private companion object {
         val LEGACY_ALARM_KEYS = listOf("raised_alarm_keys", "active_alarm_codes", "active_alarm_json")
+        val eventPreferenceLock = Any()
     }
 }
+
+/** A stored filter or event preference that cannot be read back. */
+class CorruptSettingException(key: String, reason: String, cause: Throwable? = null) :
+    IllegalStateException("Stored setting '$key' is unreadable: $reason", cause)

@@ -1,6 +1,13 @@
 package com.example.calendaralarm
 
+import android.content.Context
 import org.json.JSONObject
+
+/** Overrides [event]'s alarm for [scope] and resyncs alarms to apply it. */
+fun setEventAlarm(context: Context, event: CalendarEvent, scope: EventPreference.Scope, enabled: Boolean) {
+    Prefs(context).saveEventPreference(EventPreference.of(event, scope, enabled))
+    AlarmScheduler.schedulePoll(context, 0L)
+}
 
 data class EventPreference(
     val key: String,
@@ -23,6 +30,16 @@ data class EventPreference(
             scope = Scope.valueOf(json.getString("scope")),
             alarmEnabled = if (json.has("alarmEnabled")) json.getBoolean("alarmEnabled") else null,
             lastSeenEndMs = json.optLong("lastSeenEndMs", 0L)
+        )
+
+        fun of(event: CalendarEvent, scope: Scope, alarmEnabled: Boolean) = EventPreference(
+            key = when (scope) {
+                Scope.EVENT  -> eventKey(event)
+                Scope.SERIES -> seriesKey(event)
+            },
+            scope = scope,
+            alarmEnabled = alarmEnabled,
+            lastSeenEndMs = event.end.toEpochMilli()
         )
 
         fun eventKey(event: CalendarEvent): String {
