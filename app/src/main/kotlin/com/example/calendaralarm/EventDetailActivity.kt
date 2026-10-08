@@ -63,7 +63,7 @@ class EventDetailActivity : AppCompatActivity() {
 
         binding.detailTitle.text = event.summary
         binding.detailTime.text  = if (event.isAllDay) "All day"
-            else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
+            else "${event.localStart.format(fmt)} – ${event.localEnd.format(fmt)}"
 
         if (event.location.isNotEmpty()) {
             binding.detailLocation.text = event.location
@@ -168,7 +168,7 @@ class EventDetailActivity : AppCompatActivity() {
             EventPreference.Scope.EVENT -> EventPreference.eventKey(event)
             EventPreference.Scope.SERIES -> EventPreference.seriesKey(event)
         }
-        val endMs = event.end.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val endMs = event.end.toEpochMilli()
         prefs.saveEventPreference(EventPreference(key, scope, alarmEnabled, endMs))
         AlarmScheduler.schedulePoll(this, 0L)
         updateAlarmPreferenceStatus()

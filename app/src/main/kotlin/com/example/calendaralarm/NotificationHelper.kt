@@ -44,6 +44,9 @@ object NotificationHelper {
     /** The reminder to grant [prompt]. */
     fun permissionNotificationId(prompt: PermissionPrompt): Int = 1 + prompt.ordinal
 
+    /** The warning that the feed with urlId [feedId] is not syncing. */
+    fun feedProblemNotificationId(feedId: String): Int = "feed:$feedId".hashCode()
+
     fun showSilentAlarm(context: Context, instance: AlarmInstance) = postNotice(context, instance, titlePrefix = "")
 
     fun showMissedAlarm(context: Context, instance: AlarmInstance) =
@@ -66,6 +69,25 @@ object NotificationHelper {
         context.getSystemService(NotificationManager::class.java).notify(id, notification)
         AppLog.i("NotificationHelper: permission reminder posted for $prompt")
     }
+
+    fun showFeedProblem(context: Context, feedId: String, feedName: String, status: FeedStatus) {
+        val id = feedProblemNotificationId(feedId)
+        val mainPi = PendingIntent.getActivity(context, id,
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PI_FLAGS)
+        val notification = NotificationCompat.Builder(context, CHANNEL_REMINDER)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(FeedStatus.problemTitle(feedName))
+            .setContentText(status.problem)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(status.problemDetails()))
+            .setContentIntent(mainPi)
+            .setAutoCancel(true)
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(id, notification)
+        AppLog.i("NotificationHelper: feed problem posted for $feedId")
+    }
+
+    fun cancelFeedProblem(context: Context, feedId: String) =
+        context.getSystemService(NotificationManager::class.java).cancel(feedProblemNotificationId(feedId))
 
     fun buildRingingNotification(context: Context, instance: AlarmInstance): Notification {
         val presentation = AlarmPresentation(context, instance)

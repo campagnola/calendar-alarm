@@ -1,5 +1,6 @@
 package com.example.calendaralarm
 
+import android.app.NotificationManager
 import android.os.Looper
 import android.view.View
 import android.widget.TextView
@@ -7,6 +8,8 @@ import com.example.calendaralarm.AlarmSimulator.Companion.ics
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -121,6 +124,42 @@ class ScheduleSyncTest {
         sim.runUntil(startMs + 40 * 60_000L)
 
         assertEquals(listOf(utcMs(june18, 13, 55), tomorrowTrigger), sim.pendingEventAlarmTriggers())
+    }
+
+    private fun feedNotification(path: String = AlarmSimulator.DEFAULT_PATH) =
+        shadowOf(context.getSystemService(NotificationManager::class.java)).getNotification(
+            NotificationHelper.feedProblemNotificationId(Prefs(context).urlId(sim.url(path))))
+
+    @Test fun `a failing feed is shown at once and notified after an hour, then cleared`() {
+        sim.setIcsContent(ics(tomorrowEvent))
+        bootAndFirstPoll()
+        sim.failSource(AlarmSimulator.DEFAULT_PATH)
+        sim.runUntil(startMs + 20 * 60_000L)
+
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val banner = activity.findViewById<TextView>(R.id.feedProblemsText)
+        idleUntil { banner.visibility == View.VISIBLE }
+        assertTrue(banner.text.toString(), banner.text.contains("HTTP 500"))
+        assertNull("a temporary failure is not notified", feedNotification())
+        assertEquals("alarms survive the failure", listOf(tomorrowTrigger), sim.pendingEventAlarmTriggers())
+
+        sim.runUntil(startMs + 95 * 60_000L)
+        assertNotNull("failing for over an hour is notified", feedNotification())
+
+        sim.recoverSource(AlarmSimulator.DEFAULT_PATH)
+        sim.runUntil(startMs + 115 * 60_000L)
+        assertNull("recovery clears the notification", feedNotification())
+        assertNull(Prefs(context).feedStatus(Prefs(context).urlId(sim.url(AlarmSimulator.DEFAULT_PATH))).problem)
+    }
+
+    @Test fun `an unreadable event is reported and the rest of its feed still gets alarms`() {
+        sim.setIcsContent(ics(tomorrowEvent).replace("END:VCALENDAR",
+            "BEGIN:VEVENT\nUID:bad@test\nSUMMARY:bad\nDTSTART;TZID=Nowhere:20260619T080000\nEND:VEVENT\nEND:VCALENDAR"))
+        bootAndFirstPoll()
+
+        assertEquals(listOf(tomorrowTrigger), sim.pendingEventAlarmTriggers())
+        val problem = Prefs(context).feedStatus(Prefs(context).urlId(sim.url(AlarmSimulator.DEFAULT_PATH))).problem
+        assertTrue(problem.toString(), problem!!.contains("'bad'"))
     }
 
     @Test fun `a sync with no calendar data keeps existing alarms`() {

@@ -3,8 +3,8 @@ package com.example.calendaralarm
 import android.content.Context
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.Duration
+import java.time.Instant
 
 class Prefs(context: Context) {
     private val p = context.getSharedPreferences("cal_alarm", Context.MODE_PRIVATE)
@@ -88,12 +88,10 @@ class Prefs(context: Context) {
     fun icsContentHash(id: String): String      = p.getString("hash_$id", "") ?: ""
     fun setIcsContentHash(id: String, v: String) = p.edit().putString("hash_$id", v).apply()
 
-    fun icsLastFetchMs(id: String): Long        = p.getLong("fetch_ms_$id", 0L)
-    fun setIcsLastFetchMs(id: String, v: Long)  = p.edit().putLong("fetch_ms_$id", v).apply()
-
-    // "OK" on success, or an error message.
-    fun icsLastFetchStatus(id: String): String  = p.getString("fetch_ok_$id", "") ?: ""
-    fun setIcsLastFetchStatus(id: String, v: String) = p.edit().putString("fetch_ok_$id", v).apply()
+    fun feedStatus(id: String): FeedStatus =
+        p.getString("feed_status_$id", null)?.let { FeedStatus.fromJson(JSONObject(it)) } ?: FeedStatus()
+    fun setFeedStatus(id: String, v: FeedStatus) =
+        p.edit().putString("feed_status_$id", v.toJson().toString()).apply()
 
     // Number of events for today from this source (-1 = not yet known).
     fun icsLastFetchEventCount(id: String): Int = p.getInt("event_count_$id", -1)
@@ -101,6 +99,7 @@ class Prefs(context: Context) {
 
     // User-visible name for this source (auto-populated from X-WR-CALNAME on first fetch).
     fun icsSourceName(id: String): String = p.getString("name_$id", "") ?: ""
+    fun icsDisplayName(url: String): String = icsSourceName(urlId(url)).ifEmpty { url }
     fun setIcsSourceName(id: String, v: String) = p.edit().putString("name_$id", v).apply()
 
     // ── Event filters ─────────────────────────────────────────────────────────
@@ -187,7 +186,7 @@ class Prefs(context: Context) {
         val stored = eventPreferences.associateBy { it.key }.toMutableMap()
         var changed = false
         for (event in events) {
-            val endMs = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val endMs = event.end.toEpochMilli()
             val eventKey = EventPreference.eventKey(event)
             stored[eventKey]?.let {
                 if (endMs > it.lastSeenEndMs) {
@@ -208,8 +207,8 @@ class Prefs(context: Context) {
         if (changed) eventPreferences = stored.values.sortedBy { it.key }
     }
 
-    fun pruneStaleEventPreferences(now: LocalDateTime = LocalDateTime.now()) {
-        val cutoffMs = now.minusDays(7).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    fun pruneStaleEventPreferences(now: Instant) {
+        val cutoffMs = now.minus(Duration.ofDays(7)).toEpochMilli()
         val kept = eventPreferences.filter { it.lastSeenEndMs == 0L || it.lastSeenEndMs >= cutoffMs }
         if (kept.size != eventPreferences.size) eventPreferences = kept
     }
@@ -237,7 +236,7 @@ class Prefs(context: Context) {
     fun clearSourceCache(id: String) {
         p.edit()
             .remove("etag_$id").remove("lmod_$id").remove("hash_$id")
-            .remove("fetch_ms_$id").remove("fetch_ok_$id").remove("event_count_$id")
+            .remove("feed_status_$id").remove("event_count_$id")
             .remove("name_$id")
             .apply()
     }

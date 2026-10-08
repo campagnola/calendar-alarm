@@ -5,7 +5,6 @@ import android.content.Context
 import android.provider.CalendarContract
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 
@@ -41,17 +40,13 @@ object LocalCalendarReader {
     fun fetchEvents(
         context: Context,
         calendarIds: Set<Long>,
-        windowStart: LocalDateTime,
-        windowEnd: LocalDateTime
+        windowStart: Instant,
+        windowEnd: Instant
     ): List<CalendarEvent> {
         if (calendarIds.isEmpty()) return emptyList()
 
-        val zone    = ZoneId.systemDefault()
-        val startMs = windowStart.atZone(zone).toInstant().toEpochMilli()
-        val endMs   = windowEnd.atZone(zone).toInstant().toEpochMilli()
-
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon()
-            .also { ContentUris.appendId(it, startMs); ContentUris.appendId(it, endMs) }
+            .also { ContentUris.appendId(it, windowStart.toEpochMilli()); ContentUris.appendId(it, windowEnd.toEpochMilli()) }
             .build()
 
         val projection = arrayOf(
@@ -96,8 +91,8 @@ object LocalCalendarReader {
                 val desc     = cursor.getString(descCol) ?: ""
                 val isSeries = rruleCol >= 0 && !cursor.getString(rruleCol).isNullOrEmpty()
 
-                val startDt = eventDateTime(beginMs, isAllDay, zone)
-                val endDt   = eventDateTime(endMs2, isAllDay, zone)
+                val startDt = eventInstant(beginMs, isAllDay)
+                val endDt   = eventInstant(endMs2, isAllDay)
 
                 val calId = cursor.getLong(cursor.getColumnIndex(CalendarContract.Instances.CALENDAR_ID))
                 events.add(CalendarEvent(
@@ -124,10 +119,12 @@ object LocalCalendarReader {
     private fun extractMeetingUrl(desc: String): String? =
         zoomRe.find(desc)?.value ?: teamsRe.find(desc)?.value
 
-    private fun eventDateTime(epochMs: Long, isAllDay: Boolean, zone: ZoneId): LocalDateTime =
+    /** Android stores all-day instances at UTC midnight; pin their date to device-zone midnight. */
+    private fun eventInstant(epochMs: Long, isAllDay: Boolean): Instant =
         if (isAllDay) {
-            LocalDate.ofInstant(Instant.ofEpochMilli(epochMs), ZoneOffset.UTC).atStartOfDay()
+            LocalDate.ofInstant(Instant.ofEpochMilli(epochMs), ZoneOffset.UTC)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant()
         } else {
-            LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), zone)
+            Instant.ofEpochMilli(epochMs)
         }
 }

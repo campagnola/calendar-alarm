@@ -1,7 +1,6 @@
 package com.example.calendaralarm
 
 import org.json.JSONObject
-import java.time.ZoneId
 
 data class EventPreference(
     val key: String,
@@ -27,8 +26,7 @@ data class EventPreference(
         )
 
         fun eventKey(event: CalendarEvent): String {
-            val startMs = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            return listOf(event.sourceId, event.uid, startMs.toString()).joinToString("|")
+            return listOf(event.sourceId, event.uid, event.start.toEpochMilli().toString()).joinToString("|")
         }
 
         fun seriesKey(event: CalendarEvent): String =

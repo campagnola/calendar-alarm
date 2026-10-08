@@ -12,42 +12,36 @@ import java.util.concurrent.ConcurrentHashMap
 
 object IcsFetcher {
 
-    /** What callers (ScheduleSync, MainActivity) receive per source. */
-    data class FetchedSource(val url: String, val text: String, val cacheTimestamp: Long)
+    /**
+     * What callers receive per source: the newest available [text], and [downloadError] when this
+     * fetch's download failed. [text] is null only together with a [downloadError].
+     */
+    data class FetchedSource(val url: String, val text: String?, val downloadError: String?)
 
     private val mutexes = ConcurrentHashMap<String, Mutex>()
     private fun mutexFor(id: String) = mutexes.getOrPut(id) { Mutex() }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /**
-     * Fetch a single URL. Updates per-URL status in Prefs so the settings page
-     * can display it. Returns null only when no data is available at all
-     * (download failed AND no cache file exists).
-     */
-    suspend fun fetchOne(context: Context, url: String, forceDownload: Boolean = false): FetchedSource? {
+    /** Fetch a single URL, falling back to the cached copy when the download fails. */
+    suspend fun fetchOne(context: Context, url: String, forceDownload: Boolean = false): FetchedSource {
         val prefs = Prefs(context)
         val id    = prefs.urlId(url)
         return mutexFor(id).withLock { fetchLocked(context, url, id, prefs, forceDownload) }
     }
 
     /**
-     * Fetch all configured sources and return the results. Sources that fail
-     * with no existing cache are silently omitted. Safe to call from multiple
-     * coroutines simultaneously — each URL has its own mutex.
+     * Fetch all configured sources. Safe to call from multiple coroutines simultaneously —
+     * each URL has its own mutex.
      */
-    suspend fun fetchAll(context: Context, forceDownload: Boolean = false): List<FetchedSource> {
-        val prefs   = Prefs(context)
-        val sources = prefs.icsSources
-        if (sources.isEmpty()) return emptyList()
-        return sources.mapNotNull { url -> fetchOne(context, url, forceDownload) }
-    }
+    suspend fun fetchAll(context: Context, forceDownload: Boolean = false): List<FetchedSource> =
+        Prefs(context).icsSources.map { url -> fetchOne(context, url, forceDownload) }
 
     // ── Core fetch logic ──────────────────────────────────────────────────────
 
     private fun fetchLocked(
         context: Context, url: String, id: String, prefs: Prefs, forceDownload: Boolean
-    ): FetchedSource? {
+    ): FetchedSource {
         val cacheFile = File(context.cacheDir, "calendar_$id.ics")
 
         // Return cache if it is fresh enough and no forced download requested.
@@ -56,7 +50,7 @@ object IcsFetcher {
             val maxAgeMs = (prefs.pollIntervalMinutes - 1).coerceAtLeast(1) * 60_000L
             if (ageMs < maxAgeMs) {
                 Log.i("CalAlarm", "[$id] cache ${ageMs / 1000}s old (max ${maxAgeMs / 1000}s), using cache")
-                return cacheFile.toResult(url)
+                return cacheFile.toResult(url, downloadError = null)
             }
         }
 
@@ -67,17 +61,16 @@ object IcsFetcher {
             when (headSizeChanged(url, id, prefs, cacheFile)) {
                 false -> {
                     Log.i("CalAlarm", "[$id] HEAD size matches cache, skipping GET")
-                    return cacheFile.toResult(url)
+                    return cacheFile.toResult(url, downloadError = null)
                 }
                 true  -> Log.i("CalAlarm", "[$id] HEAD size differs, doing full GET")
                 null  -> Log.i("CalAlarm", "[$id] HEAD inconclusive, doing full GET")
             }
         }
 
-        val fetchOk = doGet(url, id, prefs, cacheFile)
-        if (!cacheFile.exists()) return null
-        if (!fetchOk) AppLog.w("IcsFetcher [$id]: fetch failed, using cached copy")
-        return cacheFile.toResult(url)
+        val error = doGet(url, id, prefs, cacheFile)
+        if (error != null) AppLog.w("IcsFetcher [$id]: fetch failed ($error), using cached copy if any")
+        return cacheFile.toResult(url, error)
     }
 
     // Returns true=size changed, false=same, null=undetermined.
@@ -103,8 +96,8 @@ object IcsFetcher {
         }
     }
 
-    /** Returns true if usable ICS data is now in [cacheFile], false on any error. */
-    private fun doGet(url: String, id: String, prefs: Prefs, cacheFile: File): Boolean {
+    /** Downloads into [cacheFile]; returns null on success or a description of the failure. */
+    private fun doGet(url: String, id: String, prefs: Prefs, cacheFile: File): String? {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000
         conn.readTimeout    = 10_000
@@ -120,9 +113,7 @@ object IcsFetcher {
                 HttpURLConnection.HTTP_NOT_MODIFIED -> {
                     Log.i("CalAlarm", "[$id] 304 Not Modified")
                     conn.disconnect()
-                    prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
-                    prefs.setIcsLastFetchStatus(id, "OK")
-                    return true
+                    return if (cacheFile.exists()) null else "Server reported no change, but there is no cached copy"
                 }
                 HttpURLConnection.HTTP_OK -> {
                     val etag         = conn.getHeaderField("ETag")          ?: "(none)"
@@ -141,9 +132,7 @@ object IcsFetcher {
                     if (!bodyStart.startsWith("BEGIN:VCALENDAR")) {
                         Log.w("CalAlarm", "[$id] 200 OK but response is not a valid ICS file " +
                             "(Content-Type=$contentType, ${bytes.size} bytes)")
-                        prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
-                        prefs.setIcsLastFetchStatus(id, "Not an ICS file (Content-Type: $contentType)")
-                        return false
+                        return "Not an ICS file (Content-Type: $contentType)"
                     }
 
                     if (etag    != "(none)") prefs.setIcsEtag(id, etag)
@@ -161,30 +150,25 @@ object IcsFetcher {
                         IcsParser.calendarName(bytes.toString(Charsets.UTF_8))
                             ?.let { prefs.setIcsSourceName(id, it) }
                     }
-                    prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
-                    prefs.setIcsLastFetchStatus(id, "OK")
-                    return true
+                    return null
                 }
                 else -> {
                     Log.w("CalAlarm", "[$id] unexpected HTTP $code")
                     conn.disconnect()
-                    prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
-                    prefs.setIcsLastFetchStatus(id, "HTTP $code")
-                    return false
+                    return "HTTP $code"
                 }
             }
         } catch (e: Exception) {
             Log.w("CalAlarm", "[$id] GET failed: ${e.message}")
             conn.runCatching { disconnect() }
-            prefs.setIcsLastFetchMs(id, System.currentTimeMillis())
-            prefs.setIcsLastFetchStatus(id, e.message ?: "Network error")
-            return false
+            return e.toString()
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private fun File.toResult(url: String) = FetchedSource(url, readText(Charsets.UTF_8), lastModified())
+    private fun File.toResult(url: String, downloadError: String?) =
+        FetchedSource(url, takeIf { it.exists() }?.readText(Charsets.UTF_8), downloadError)
 
     private fun md5(bytes: ByteArray): String =
         MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }

@@ -30,7 +30,8 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
 import java.io.File
-import java.time.LocalDateTime
+import java.time.Duration
+import java.time.Instant
 import java.time.OffsetDateTime
 
 @RunWith(RobolectricTestRunner::class)
@@ -47,9 +48,9 @@ class AlarmUiTest {
 
     /** Plans and triggers an alarm for one event; its service start is left queued. Returns its id. */
     private fun ringAlarm(summary: String, silent: Boolean = false, meetingUrl: String? = null): String {
-        val start = LocalDateTime.now().plusMinutes(5)
+        val start = Instant.now().plus(Duration.ofMinutes(5))
         val event = CalendarEvent(uid = "$summary@test", summary = summary, start = start,
-                                  end = start.plusHours(1), isAllDay = false, meetingUrl = meetingUrl)
+                                  end = start.plus(Duration.ofHours(1)), isAllDay = false, meetingUrl = meetingUrl)
         val controller = AlarmController.from(context)
         controller.syncFromCalendar("test", listOf(event)) {
             listOf(PlannedAlarm(listOf(event), AppClock.now(), silent))
@@ -140,8 +141,8 @@ class AlarmUiTest {
     @Test @Config(sdk = [31])
     fun `without the exact alarm permission alarms are set inexactly and a reminder is posted`() {
         ShadowAlarmManager.setCanScheduleExactAlarms(false)
-        val start = LocalDateTime.now().plusHours(1)
-        val event = CalendarEvent("a@test", "A", start, start.plusHours(1), isAllDay = false)
+        val start = Instant.now().plus(Duration.ofHours(1))
+        val event = CalendarEvent("a@test", "A", start, start.plus(Duration.ofHours(1)), isAllDay = false)
 
         AlarmController.from(context).syncFromCalendar("test", listOf(event)) {
             listOf(PlannedAlarm(listOf(event), AppClock.now() + 60_000L, silent = false))

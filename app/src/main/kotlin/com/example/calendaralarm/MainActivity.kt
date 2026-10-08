@@ -23,8 +23,10 @@ import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 
 class MainActivity : AppCompatActivity() {
 
@@ -122,34 +124,37 @@ class MainActivity : AppCompatActivity() {
             val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
                 if (syncAlarms) ScheduleSync.run(this@MainActivity, "user refresh")
 
-                val visDayStart = visDay.atStartOfDay()
-                val windowStart = if (visDay == today) visDayStart else now
-                val windowEnd   = visDay.plusDays(1).atStartOfDay()
+                val zone        = ZoneId.systemDefault()
+                val visDayStart = visDay.atStartOfDay(zone).toInstant()
+                val windowStart = if (visDay == today) visDayStart else now.atZone(zone).toInstant()
+                val windowEnd   = visDay.plusDays(1).atStartOfDay(zone).toInstant()
 
-                val icsSources = IcsFetcher.fetchAll(this@MainActivity)
+                val icsTexts = IcsFetcher.fetchAll(this@MainActivity)
+                    .mapNotNull { source -> source.text?.let { source.url to it } }
 
                 val localEvents = if (prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()) {
                     LocalCalendarReader.fetchEvents(this@MainActivity, prefs.localCalendarIds, windowStart, windowEnd)
                 } else emptyList()
 
                 // Fail only if ICS was configured but all fetches failed and there's no local fallback
-                if (prefs.icsSources.isNotEmpty() && icsSources.isEmpty() && localEvents.isEmpty()) {
+                if (prefs.icsSources.isNotEmpty() && icsTexts.isEmpty() && localEvents.isEmpty()) {
                     return@withContext null
                 }
 
-                val allEvents = icsSources.flatMap { source ->
-                    IcsParser.parse(source.text, windowStart, windowEnd, prefs.urlId(source.url))
+                val allEvents = icsTexts.flatMap { (url, text) ->
+                    IcsParser.parse(text, windowStart, windowEnd, prefs.urlId(url)).events
                 } + localEvents
                 val eventFlags = FilterEngine.effectiveFlags(allEvents, prefs.eventFilters, prefs.eventPreferences)
 
                 allEvents
                     .filter { it.start >= windowStart
-                           && it.start.toLocalDate() <= visDay
+                           && it.localStart.toLocalDate() <= visDay
                            && eventFlags.getValue(it).visible }
                     .sortedBy { it.start }
                     .map { it to eventFlags.getValue(it).alarmEnabled }
             }
 
+            showFeedProblems()
             when {
                 displayEvents == null    -> showMessage("Failed to load calendar. Check URL and network.")
                 displayEvents.isEmpty()  ->
@@ -158,14 +163,14 @@ class MainActivity : AppCompatActivity() {
                     binding.scheduleContainer.removeAllViews()
                     binding.statusText.visibility = View.GONE
                     val fmt        = timeFormatter(this@MainActivity)
-                    val displayNow = AppClock.nowLocal()
+                    val displayNow = Instant.ofEpochMilli(AppClock.now())
                     val showingTomorrow = visDay != today
                     var headerInserted  = false
 
                     for ((event, alarmEnabled) in displayEvents) {
                         // Insert "tomorrow" divider before the first tomorrow-day event
                         if (showingTomorrow && !headerInserted
-                                && event.start.toLocalDate() == visDay) {
+                                && event.localStart.toLocalDate() == visDay) {
                             addDayHeader("------ tomorrow ------")
                             headerInserted = true
                         }
@@ -191,7 +196,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addEventCard(event: CalendarEvent, fmt: java.time.format.DateTimeFormatter,
-                             now: LocalDateTime, alarmEnabled: Boolean) {
+                             now: Instant, alarmEnabled: Boolean) {
         val view = LayoutInflater.from(this).inflate(R.layout.item_event, binding.scheduleContainer, false)
 
         view.setOnClickListener {
@@ -208,7 +213,7 @@ class MainActivity : AppCompatActivity() {
 
         view.findViewById<TextView>(R.id.eventTitle).text = event.summary
         view.findViewById<TextView>(R.id.eventTime).text = if (event.isAllDay) "All day"
-            else "${event.start.format(fmt)} – ${event.end.format(fmt)}"
+            else "${event.localStart.format(fmt)} – ${event.localEnd.format(fmt)}"
 
         val bellIcon = view.findViewById<ImageView>(R.id.bellIcon)
         bellIcon.visibility = View.VISIBLE
@@ -232,6 +237,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.scheduleContainer.addView(view)
+    }
+
+    /** Lists the feeds whose latest sync failed; ScheduleSync keeps each [FeedStatus] current. */
+    private fun showFeedProblems() {
+        val problems = prefs.icsSources.mapNotNull { url ->
+            val status = prefs.feedStatus(prefs.urlId(url))
+            if (status.problem == null) null
+            else "⚠ ${FeedStatus.problemTitle(prefs.icsDisplayName(url))}\n${status.problemDetails()}"
+        }
+        binding.feedProblemsText.text = problems.joinToString("\n\n")
+        binding.feedProblemsText.visibility = if (problems.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun showMessage(msg: String) {

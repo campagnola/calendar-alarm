@@ -34,8 +34,8 @@ class AlarmPlannerTest {
     private fun event(date: LocalDate, hour: Int, min: Int = 0, uid: String = "uid") =
         CalendarEvent(
             uid = uid, summary = "Test", isAllDay = false,
-            start = date.atTime(hour, min),
-            end   = date.atTime(hour, min).plusHours(1)
+            start = date.atTime(hour, min).toInstant(ZoneOffset.UTC),
+            end   = date.atTime(hour, min).plusHours(1).toInstant(ZoneOffset.UTC)
         )
 
     private fun plan(
@@ -112,8 +112,8 @@ class AlarmPlannerTest {
     @Test fun `ongoing event whose trigger has passed fires at now plus 2s`() {
         val event9am = CalendarEvent(
             uid = "standup", summary = "Morning Standup",
-            start = tomorrow.atTime(9, 0),
-            end   = tomorrow.atTime(11, 0),
+            start = tomorrow.atTime(9, 0).toInstant(ZoneOffset.UTC),
+            end   = tomorrow.atTime(11, 0).toInstant(ZoneOffset.UTC),
             isAllDay = false
         )
         val lateNowMs = utcMs(tomorrow, 10, 12)
@@ -139,14 +139,14 @@ class AlarmPlannerTest {
             END:VCALENDAR
         """.trimIndent()
 
-        val winStart = LocalDateTime.of(2026, 6, 19, 0, 0)
-        val winEnd   = LocalDateTime.of(2026, 6, 20, 0, 0)
-        val events = IcsParser.parse(ics, winStart, winEnd)
+        val winStart = LocalDateTime.of(2026, 6, 19, 0, 0).toInstant(ZoneOffset.UTC)
+        val winEnd   = LocalDateTime.of(2026, 6, 20, 0, 0).toInstant(ZoneOffset.UTC)
+        val events = IcsParser.parse(ics, winStart, winEnd).events
         assertEquals(1, events.size)
 
         val ev = events[0]
         // 04:00 PDT (UTC-7) should arrive as 11:00 on a UTC device.
-        assertEquals("start hour", 11, ev.start.hour)
+        assertEquals("start hour", 11, ev.localStart.hour)
 
         val result = planAlarms(listOf(ev), emptyMap(), 5, true, quietStart, quietEnd, nowMs)
         assertEquals(1, result.size)

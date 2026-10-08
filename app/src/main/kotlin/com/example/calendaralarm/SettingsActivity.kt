@@ -75,8 +75,7 @@ class SettingsActivity : AppCompatActivity() {
             val row = ItemSourceRowBinding.inflate(LayoutInflater.from(this),
                                                    binding.urlSourcesContainer, false)
             val id = prefs.urlId(url)
-            val name = prefs.icsSourceName(id)
-            row.sourceNameText.text   = if (name.isNotEmpty()) name else url
+            row.sourceNameText.text   = prefs.icsDisplayName(url)
             row.sourceStatusText.text = briefStatus(id)
             row.root.setOnClickListener {
                 startActivity(Intent(this, SourceSettingsActivity::class.java)
@@ -113,14 +112,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun briefStatus(id: String): String {
-        val ms     = prefs.icsLastFetchMs(id)
-        val status = prefs.icsLastFetchStatus(id)
-        val count  = prefs.icsLastFetchEventCount(id)
-        return when {
-            ms == 0L       -> "Not yet checked"
-            status == "OK" -> if (count >= 0) "$count event${if (count == 1) "" else "s"} today" else "OK"
-            else           -> "Error: $status"
-        }
+        return prefs.feedStatus(id).summary(prefs.icsLastFetchEventCount(id))
     }
 
     private fun minutesToHhmm(minutes: Int) = "%02d:%02d".format(minutes / 60, minutes % 60)

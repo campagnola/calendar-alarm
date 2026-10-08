@@ -3,7 +3,6 @@ package com.example.calendaralarm
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
-import java.time.ZoneId
 
 /** Identifies one occurrence of an event. */
 object AlarmKey {
@@ -46,8 +45,8 @@ data class AlarmEvent(
         fun of(event: CalendarEvent) = AlarmEvent(
             uid        = event.uid,
             summary    = event.summary,
-            startMs    = event.start.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-            endMs      = event.end.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            startMs    = event.start.toEpochMilli(),
+            endMs      = event.end.toEpochMilli(),
             location   = event.location,
             meetingUrl = event.meetingUrl
         )

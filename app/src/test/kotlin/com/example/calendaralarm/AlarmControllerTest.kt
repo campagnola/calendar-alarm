@@ -34,7 +34,8 @@ class AlarmControllerTest {
     private fun persisted(id: String) = persisted().single { it.id == id }
 
     private fun event(uid: String, startHour: Int = 13) =
-        CalendarEvent(uid, uid, noon.withHour(startHour), noon.withHour(startHour + 1), isAllDay = false)
+        CalendarEvent(uid, uid, noon.withHour(startHour).atZone(ZoneId.systemDefault()).toInstant(),
+            noon.withHour(startHour + 1).atZone(ZoneId.systemDefault()).toInstant(), isAllDay = false)
 
     private fun sync(vararg events: CalendarEvent) =
         controller.syncFromCalendar("test", events.toList()) { handled ->

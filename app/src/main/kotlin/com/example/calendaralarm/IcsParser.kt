@@ -4,12 +4,13 @@ import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
+import java.time.zone.ZoneRules
 
 data class CalendarEvent(
     val uid: String,
     val summary: String,
-    val start: LocalDateTime,
-    val end: LocalDateTime,
+    val start: Instant,
+    val end: Instant,
     val isAllDay: Boolean,
     val location: String = "",
     val meetingUrl: String? = null,
@@ -19,6 +20,10 @@ data class CalendarEvent(
     val description: String = "",
     val isSeries: Boolean = false
 ) {
+    /** Wall-clock start/end in the device's current time zone. */
+    val localStart: LocalDateTime get() = LocalDateTime.ofInstant(start, ZoneId.systemDefault())
+    val localEnd: LocalDateTime get() = LocalDateTime.ofInstant(end, ZoneId.systemDefault())
+
     fun toJson(): String {
         val obj = org.json.JSONObject().apply {
             put("uid", uid)
@@ -46,8 +51,8 @@ data class CalendarEvent(
             return CalendarEvent(
                 uid         = obj.getString("uid"),
                 summary     = obj.getString("summary"),
-                start       = LocalDateTime.parse(obj.getString("start")),
-                end         = LocalDateTime.parse(obj.getString("end")),
+                start       = Instant.parse(obj.getString("start")),
+                end         = Instant.parse(obj.getString("end")),
                 isAllDay    = obj.getBoolean("isAllDay"),
                 location    = obj.optString("location", ""),
                 description = obj.optString("description", ""),
@@ -62,7 +67,7 @@ data class CalendarEvent(
 }
 
 object IcsParser {
-    private val dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
+    internal val dtFmt = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
     private val dateFmt = DateTimeFormatter.ofPattern("yyyyMMdd")
 
     fun calendarName(icsText: String): String? {
@@ -74,36 +79,53 @@ object IcsParser {
         return null
     }
 
-    fun parse(icsText: String, windowStart: LocalDateTime, windowEnd: LocalDateTime,
-              sourceId: String = ""): List<CalendarEvent> {
+    /** The events of a feed, and a description of each part of it that could not be read. */
+    data class ParsedFeed(val events: List<CalendarEvent>, val problems: List<String>)
+
+    /**
+     * Returns the events overlapping [windowStart, windowEnd). Every date is resolved to an
+     * instant here, against the VTIMEZONE definitions in the same [icsText]. An event that
+     * cannot be read is left out and reported in [ParsedFeed.problems].
+     */
+    fun parse(icsText: String, windowStart: Instant, windowEnd: Instant,
+              sourceId: String = ""): ParsedFeed {
+        val lines = unfold(icsText)
+        val problems = mutableListOf<String>()
+        val zones = IcsTimeZone.parseAll(lines, problems)
         val rawEvents = mutableListOf<RawEvent>()
         var cur: RawEvent? = null
+        fun reportBad(raw: RawEvent, e: Exception) =
+            problems.add("Could not read event '${raw.summary ?: raw.uid}': $e")
 
-        for (line in unfold(icsText)) {
+        for (line in lines) {
             when {
                 line == "BEGIN:VEVENT" -> cur = RawEvent()
-                line == "END:VEVENT" -> { cur?.let { rawEvents.add(it) }; cur = null }
-                cur != null -> {
-                    val colon = line.indexOf(':')
+                line == "END:VEVENT" -> {
+                    cur?.let { raw -> raw.error?.let { reportBad(raw, it) } ?: rawEvents.add(raw) }
+                    cur = null
+                }
+                cur != null && cur.error == null -> try {
+                    val colon = valueSeparator(line)
                     if (colon < 0) continue
                     val key = line.substring(0, colon)
                     val value = line.substring(colon + 1)
                     when (key.substringBefore(';').uppercase()) {
                         "UID"           -> cur!!.uid = value.trim()
                         "SUMMARY"       -> cur!!.summary = unescape(value)
-                        "DTSTART"       -> parseDt(key, value)?.let { (dt, allDay) ->
-                                               cur!!.dtStart = dt; cur!!.isAllDay = allDay }
-                        "DTEND"         -> parseDt(key, value)?.let { cur!!.dtEnd = it.first }
+                        "DTSTART"       -> cur!!.dtStart = parseDt(key, value, zones)
+                        "DTEND"         -> cur!!.dtEnd = parseDt(key, value, zones)
                         "DURATION"      -> cur!!.duration = parseDuration(value)
                         "RRULE"         -> cur!!.rrule = value
-                        "RECURRENCE-ID" -> parseDt(key, value)?.let { cur!!.recurrenceId = it.first }
+                        "RECURRENCE-ID" -> cur!!.recurrenceId = parseDt(key, value, zones).instant
                         "EXDATE"        -> value.split(',').forEach { v ->
-                                               parseDt(key, v.trim())?.let { cur!!.exDates.add(it.first) } }
+                                               cur!!.exDates.add(parseDt(key, v, zones).instant) }
                         "LOCATION"      -> cur!!.location = unescape(value)
                         "DESCRIPTION"   -> cur!!.description = unescape(value)
                         "ORGANIZER"     -> cur!!.organizer = value.removePrefix("mailto:").trim()
                         "ATTENDEE"      -> cur!!.attendees.add(value.removePrefix("mailto:").trim())
                     }
+                } catch (e: Exception) {
+                    cur.error = e
                 }
             }
         }
@@ -113,46 +135,49 @@ object IcsParser {
         val overrides = rawEvents.filter { it.recurrenceId != null }.groupBy { it.uid ?: "" }
 
         val result = mutableListOf<CalendarEvent>()
-        for (raw in masters) {
+        for (raw in masters) try {
             val uid = raw.uid ?: continue
             val dtStart = raw.dtStart ?: continue
+            val start = dtStart.instant
             val duration = Duration.between(
-                dtStart,
-                raw.dtEnd ?: dtStart.plus(raw.duration ?: Duration.ofHours(1))
+                start,
+                raw.dtEnd?.instant ?: start.plus(raw.duration ?: Duration.ofHours(1))
             )
             val instanceOverrideTimes = overrides[uid]?.mapNotNull { it.recurrenceId }?.toSet() ?: emptySet()
             val excludeTimes = raw.exDates + instanceOverrideTimes
 
             val rrule = raw.rrule
             if (rrule == null) {
-                if (dtStart !in instanceOverrideTimes) {
-                    val dtEnd = dtStart.plus(duration)
-                    if (dtStart < windowEnd && dtEnd > windowStart)
-                        result.add(CalendarEvent(uid, raw.summary ?: "(No title)", dtStart, dtEnd, raw.isAllDay,
+                if (start !in instanceOverrideTimes) {
+                    val end = start.plus(duration)
+                    if (start < windowEnd && end > windowStart)
+                        result.add(CalendarEvent(uid, raw.summary ?: "(No title)", start, end, dtStart.isDate,
                             raw.location, extractMeetingUrl(raw.location, raw.description),
                             sourceId, raw.organizer, raw.attendees.toList(), raw.description))
                 }
             } else {
                 for (occ in expandRrule(rrule, dtStart, excludeTimes, windowStart, windowEnd))
-                    result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), raw.isAllDay,
+                    result.add(CalendarEvent(uid, raw.summary ?: "(No title)", occ, occ.plus(duration), dtStart.isDate,
                         raw.location, extractMeetingUrl(raw.location, raw.description),
                         sourceId, raw.organizer, raw.attendees.toList(), raw.description, isSeries = true))
             }
 
             // Include modified instances that fall in the window
             for (ov in overrides[uid] ?: emptyList()) {
-                val ovStart = ov.dtStart ?: continue
-                val ovDuration = Duration.between(ovStart, ov.dtEnd ?: ovStart.plus(ov.duration ?: duration))
-                val ovEnd = ovStart.plus(ovDuration)
+                val ovDtStart = ov.dtStart ?: continue
+                val ovStart = ovDtStart.instant
+                val ovEnd = ov.dtEnd?.instant ?: ovStart.plus(ov.duration ?: duration)
                 val ovDesc = ov.description.ifEmpty { raw.description }
                 if (ovStart < windowEnd && ovEnd > windowStart)
-                    result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
+                    result.add(CalendarEvent(uid, ov.summary ?: raw.summary ?: "(No title)", ovStart, ovEnd, ovDtStart.isDate,
                         ov.location.ifEmpty { raw.location },
                         extractMeetingUrl(ov.location.ifEmpty { raw.location }, ovDesc),
                         sourceId,
                         ov.organizer.ifEmpty { raw.organizer },
                         ov.attendees.ifEmpty { raw.attendees }.toList(), ovDesc, isSeries = rrule != null))
             }
+        } catch (e: Exception) {
+            reportBad(raw, e)
         }
 
         // Orphan overrides: RECURRENCE-ID instances whose master is absent from the file.
@@ -163,50 +188,62 @@ object IcsParser {
         for ((uid, ovList) in overrides) {
             if (uid in masterUids) continue
             for (ov in ovList) {
-                val ovStart = ov.dtStart ?: continue
-                val ovEnd = ov.dtEnd ?: ovStart.plus(ov.duration ?: Duration.ofHours(1))
+                val ovDtStart = ov.dtStart ?: continue
+                val ovStart = ovDtStart.instant
+                val ovEnd = ov.dtEnd?.instant ?: ovStart.plus(ov.duration ?: Duration.ofHours(1))
                 if (ovStart < windowEnd && ovEnd > windowStart)
-                    result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ov.isAllDay,
+                    result.add(CalendarEvent(uid, ov.summary ?: "(No title)", ovStart, ovEnd, ovDtStart.isDate,
                         ov.location, extractMeetingUrl(ov.location, ov.description),
                         sourceId, ov.organizer, ov.attendees.toList(), ov.description))
             }
         }
 
-        return result
+        return ParsedFeed(result, problems)
     }
 
     // ── RRULE expansion ──────────────────────────────────────────────────────
 
+    /**
+     * Expands in wall-clock time of the event's own zone (so BYDAY and DST follow the
+     * organizer's calendar), then converts each occurrence to an instant.
+     */
     private fun expandRrule(
         rrule: String,
-        dtStart: LocalDateTime,
-        excludeTimes: Set<LocalDateTime>,
-        windowStart: LocalDateTime,
-        windowEnd: LocalDateTime
-    ): List<LocalDateTime> {
-        val params = rrule.split(';').associate {
-            val eq = it.indexOf('='); if (eq < 0) it to "" else it.substring(0, eq) to it.substring(eq + 1)
-        }
+        first: IcsTime,
+        excludeTimes: Set<Instant>,
+        windowStartInstant: Instant,
+        windowEndInstant: Instant
+    ): List<Instant> {
+        val rules       = first.rules
+        val dtStart     = first.local
+        val windowStart = rules.toLocal(windowStartInstant)
+        val windowEnd   = rules.toLocal(windowEndInstant)
+        val params = rruleParams(rrule)
         val freq      = params["FREQ"]?.uppercase() ?: return emptyList()
         val interval  = params["INTERVAL"]?.toLongOrNull() ?: 1L
         val hasCount  = params.containsKey("COUNT")
         val maxCount  = params["COUNT"]?.toIntOrNull() ?: Int.MAX_VALUE
-        val ruleUntil = params["UNTIL"]?.let { parseDt("", it.trimEnd('Z'))?.first }
+        // A UTC UNTIL is an instant; a floating one is wall time in the event's zone.
+        val ruleUntil = params["UNTIL"]?.let { u ->
+            val until = parseDt("", u, emptyMap())
+            if (u.endsWith('Z')) rules.toLocal(until.instant) else until.local
+        }
         val effectiveEnd = if (ruleUntil != null) minOf(windowEnd, ruleUntil) else windowEnd
 
-        val byDayEntries  = params["BYDAY"]?.split(',')?.mapNotNull { parseByDayEntry(it) } ?: emptyList()
+        val byDayEntries  = params["BYDAY"]?.split(',')?.map { parseByDayEntry(it) } ?: emptyList()
         val positionalDay = byDayEntries.filter { it.position != null }
         val plainDay      = byDayEntries.filter { it.position == null }
         val byMonthDay    = params["BYMONTHDAY"]?.split(',')?.mapNotNull { it.toIntOrNull() } ?: emptyList()
         val byMonth       = params["BYMONTH"]?.split(',')?.mapNotNull { it.toIntOrNull() } ?: emptyList()
 
-        val result = mutableListOf<LocalDateTime>()
+        val result = mutableListOf<Instant>()
         var generatedCount = 0
 
         fun emit(dt: LocalDateTime) {
             if (dt >= dtStart && dt <= effectiveEnd && generatedCount < maxCount) {
                 generatedCount++
-                if (dt !in excludeTimes && dt >= windowStart) result.add(dt)
+                val instant = rules.toInstant(dt)
+                if (instant !in excludeTimes && dt >= windowStart) result.add(instant)
             }
         }
 
@@ -299,15 +336,20 @@ object IcsParser {
 
     private data class ByDayEntry(val dayOfWeek: DayOfWeek, val position: Int?)
 
-    private fun parseByDayEntry(s: String): ByDayEntry? {
-        val t = s.trim(); if (t.length < 2) return null
-        val dow = when (t.takeLast(2).uppercase()) {
-            "MO" -> DayOfWeek.MONDAY;  "TU" -> DayOfWeek.TUESDAY;  "WE" -> DayOfWeek.WEDNESDAY
-            "TH" -> DayOfWeek.THURSDAY; "FR" -> DayOfWeek.FRIDAY
-            "SA" -> DayOfWeek.SATURDAY; "SU" -> DayOfWeek.SUNDAY
-            else -> return null
-        }
-        return ByDayEntry(dow, t.dropLast(2).toIntOrNull())
+    internal fun rruleParams(rrule: String): Map<String, String> = rrule.split(';').associate {
+        val eq = it.indexOf('='); if (eq < 0) it to "" else it.substring(0, eq) to it.substring(eq + 1)
+    }
+
+    private fun parseByDayEntry(s: String): ByDayEntry {
+        val t = s.trim()
+        return ByDayEntry(parseDayOfWeek(t.takeLast(2)), t.dropLast(2).ifEmpty { null }?.toInt())
+    }
+
+    internal fun parseDayOfWeek(s: String): DayOfWeek = when (s.uppercase()) {
+        "MO" -> DayOfWeek.MONDAY;   "TU" -> DayOfWeek.TUESDAY; "WE" -> DayOfWeek.WEDNESDAY
+        "TH" -> DayOfWeek.THURSDAY; "FR" -> DayOfWeek.FRIDAY
+        "SA" -> DayOfWeek.SATURDAY; "SU" -> DayOfWeek.SUNDAY
+        else -> throw IllegalArgumentException("Bad day of week '$s'")
     }
 
     private fun nthWeekdayOfMonth(year: Int, month: Month, dow: DayOfWeek, n: Int): LocalDate? = runCatching {
@@ -323,18 +365,33 @@ object IcsParser {
     private data class RawEvent(
         var uid: String? = null,
         var summary: String? = null,
-        var dtStart: LocalDateTime? = null,
-        var dtEnd: LocalDateTime? = null,
+        var dtStart: IcsTime? = null,
+        var dtEnd: IcsTime? = null,
         var duration: Duration? = null,
         var rrule: String? = null,
-        var recurrenceId: LocalDateTime? = null,
-        var isAllDay: Boolean = false,
+        var recurrenceId: Instant? = null,
         var location: String = "",
         var description: String = "",
         var organizer: String = "",
         val attendees: MutableList<String> = mutableListOf(),
-        val exDates: MutableSet<LocalDateTime> = mutableSetOf()
+        val exDates: MutableSet<Instant> = mutableSetOf(),
+        var error: Exception? = null
     )
+
+    /** A DATE or DATE-TIME value: wall-clock [local] time in the zone described by [rules]. */
+    private data class IcsTime(val local: LocalDateTime, val rules: ZoneRules, val isDate: Boolean) {
+        val instant: Instant get() = rules.toInstant(local)
+    }
+
+    /** Index of the ':' separating a content line's name/params from its value, skipping quoted params. */
+    internal fun valueSeparator(line: String): Int {
+        var quoted = false
+        for ((i, c) in line.withIndex()) {
+            if (c == '"') quoted = !quoted
+            else if (c == ':' && !quoted) return i
+        }
+        return -1
+    }
 
     private fun unfold(text: String): List<String> {
         val out = mutableListOf<String>(); val sb = StringBuilder()
@@ -347,24 +404,26 @@ object IcsParser {
         return out
     }
 
-    private fun parseDt(key: String, value: String): Pair<LocalDateTime, Boolean>? = runCatching {
+    private val tzidRegex = Regex("TZID=(\"[^\"]*\"|[^;:]+)", RegexOption.IGNORE_CASE)
+
+    /** A TZID is resolved from the feed's own VTIMEZONEs first, then as an IANA zone; unknown TZIDs throw. */
+    private fun parseDt(key: String, value: String, zones: Map<String, ZoneRules>): IcsTime {
         val v = value.trim()
-        when {
-            key.contains("VALUE=DATE", ignoreCase = true) || (v.length == 8 && !v.contains('T')) ->
-                Pair(LocalDate.parse(v, dateFmt).atStartOfDay(), true)
+        val params = key.split(';').drop(1)
+        return when {
+            // All-day dates are floating: pinned to the device zone each time a feed is read.
+            params.any { it.equals("VALUE=DATE", ignoreCase = true) } || (v.length == 8 && !v.contains('T')) ->
+                IcsTime(LocalDate.parse(v, dateFmt).atStartOfDay(), ZoneId.systemDefault().rules, isDate = true)
             v.endsWith('Z') ->
-                Pair(LocalDateTime.parse(v.dropLast(1), dtFmt)
-                    .atZone(ZoneOffset.UTC).withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime(), false)
+                IcsTime(LocalDateTime.parse(v.dropLast(1), dtFmt), ZoneOffset.UTC.rules, isDate = false)
             else -> {
-                val ldt = LocalDateTime.parse(v.take(15), dtFmt)
-                val tzid = Regex("TZID=([^;:]+)", RegexOption.IGNORE_CASE).find(key)?.groupValues?.get(1)
-                val converted = tzid?.let { runCatching { ZoneId.of(it) }.getOrNull() }
-                    ?.let { zone -> ldt.atZone(zone).withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime() }
-                    ?: ldt
-                Pair(converted, false)
+                val tzid = tzidRegex.find(key)?.groupValues?.get(1)?.trim('"')
+                val rules = if (tzid == null) ZoneId.systemDefault().rules  // floating time
+                            else zones[tzid] ?: ZoneId.of(tzid).rules
+                IcsTime(LocalDateTime.parse(v.take(15), dtFmt), rules, isDate = false)
             }
         }
-    }.getOrNull()
+    }
 
     private fun parseDuration(value: String): Duration {
         var d = Duration.ZERO

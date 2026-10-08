@@ -87,6 +87,8 @@ class AlarmSimulator {
         Prefs(context).icsSources = listOf(server.url(DEFAULT_PATH).toString())
     }
 
+    fun url(path: String): String = server.url(path).toString()
+
     /** Add another calendar source served at [path]. */
     fun addSource(path: String) {
         val prefs = Prefs(context)
@@ -96,6 +98,11 @@ class AlarmSimulator {
     /** Requests for [path] get HTTP 500 from now on. */
     fun failSource(path: String) {
         failingPaths.add(path)
+    }
+
+    /** Requests for [path] succeed again. */
+    fun recoverSource(path: String) {
+        failingPaths.remove(path)
     }
 
     /** Requests for [path] block until the returned latch is counted down. */

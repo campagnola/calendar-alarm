@@ -15,6 +15,8 @@ import com.example.calendaralarm.databinding.ActivitySourceSettingsBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Duration
+import java.time.Instant
 
 class SourceSettingsActivity : AppCompatActivity() {
 
@@ -178,7 +180,8 @@ class SourceSettingsActivity : AppCompatActivity() {
         binding.reloadButton.isEnabled = false
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
-                IcsFetcher.fetchOne(this@SourceSettingsActivity, url, forceDownload = true)
+                val now = Instant.ofEpochMilli(AppClock.now())
+                FeedSync.sync(this@SourceSettingsActivity, url, now, now.plus(Duration.ofDays(1)))
             }
             val id = prefs.urlId(url)
             if (binding.nameInput.text.isNullOrEmpty()) {
@@ -191,18 +194,10 @@ class SourceSettingsActivity : AppCompatActivity() {
     }
 
     private fun refreshStatus(id: String) {
-        val ms     = prefs.icsLastFetchMs(id)
-        val status = prefs.icsLastFetchStatus(id)
-        val count  = prefs.icsLastFetchEventCount(id)
-        binding.statusText.text = when {
-            ms == 0L       -> "Not yet checked"
-            status == "OK" -> {
-                val countStr = if (count >= 0) "$count event${if (count == 1) "" else "s"} today"
-                               else "OK"
-                "Checked ${DateUtils.getRelativeTimeSpanString(ms)} – $countStr"
-            }
-            else -> "Checked ${DateUtils.getRelativeTimeSpanString(ms)} – Error: $status"
-        }
+        val status  = prefs.feedStatus(id)
+        val summary = status.summary(prefs.icsLastFetchEventCount(id))
+        binding.statusText.text = if (status.lastAttemptMs == 0L) summary
+            else "Checked ${DateUtils.getRelativeTimeSpanString(status.lastAttemptMs)} – $summary"
     }
 
     // ── Save / Delete ─────────────────────────────────────────────────────────
@@ -235,7 +230,7 @@ class SourceSettingsActivity : AppCompatActivity() {
             if (newUrl !in sources) sources.add(newUrl)
             prefs.icsSources = sources
         } else if (newUrl != originalUrl) {
-            prefs.clearSourceCache(prefs.urlId(originalUrl))
+            FeedSync.forget(this, originalUrl)
             val idx = sources.indexOf(originalUrl)
             if (idx >= 0) sources[idx] = newUrl else sources.add(newUrl)
             prefs.icsSources = sources
@@ -267,7 +262,7 @@ class SourceSettingsActivity : AppCompatActivity() {
                     val sources = prefs.icsSources.toMutableList()
                     sources.remove(originalUrl)
                     prefs.icsSources = sources
-                    prefs.clearSourceCache(prefs.urlId(originalUrl))
+                    FeedSync.forget(this, originalUrl)
                     AlarmScheduler.schedulePoll(this, 0L)
                     finish()
                 }

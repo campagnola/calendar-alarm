@@ -52,7 +52,7 @@ class FilterSettingsActivity : AppCompatActivity() {
         for (url in prefs.icsSources) {
             val id = prefs.urlId(url)
             ids.add(id)
-            names.add(prefs.icsSourceName(id).ifEmpty { url })
+            names.add(prefs.icsDisplayName(url))
         }
         if (prefs.localCalendarEnabled) {
             for (calId in prefs.localCalendarIds) {

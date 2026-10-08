@@ -59,13 +59,13 @@ fun planAlarms(
         // Quiet hours based on event start is the common case (event occurs during quiet hours).
         // Quiet hours based on trigger time handles events that start just after quiet hours end
         // but whose advance time pushes the alarm back into quiet hours.
-        val startInQuietHours = isInQuietHours(event.start, quietHoursStartMinutes, quietHoursEndMinutes)
+        val startInQuietHours = isInQuietHours(event.localStart, quietHoursStartMinutes, quietHoursEndMinutes)
         val triggerLdt = LocalDateTime.ofInstant(Instant.ofEpochMilli(triggerMs), ZoneId.systemDefault())
         val triggerInQuietHours = !startInQuietHours &&
             isInQuietHours(triggerLdt, quietHoursStartMinutes, quietHoursEndMinutes)
 
         if (startInQuietHours || triggerInQuietHours) {
-            val refLdt = if (startInQuietHours) event.start else triggerLdt
+            val refLdt = if (startInQuietHours) event.localStart else triggerLdt
             when (quietMode) {
                 FilterAction.QuietHoursMode.SILENT -> silent = true
                 FilterAction.QuietHoursMode.EARLY -> {
