@@ -1,6 +1,10 @@
 package com.example.calendaralarm
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Duration
@@ -28,10 +32,15 @@ object ScheduleSync {
         val controller = AlarmController.from(context)
         controller.reconcile(reason)
 
-        val feeds = prefs.icsSources.mapNotNull { url ->
-            FeedSync.sync(context, url, now, end)?.also { events ->
-                prefs.setIcsLastFetchEventCount(prefs.urlId(url), events.countToday())
-            }
+        // Feeds sync in parallel so one unresponsive server doesn't delay the others.
+        val feeds = coroutineScope {
+            prefs.icsSources.map { url ->
+                async(Dispatchers.IO) {
+                    FeedSync.sync(context, url, now, end)?.also { events ->
+                        prefs.setIcsLastFetchEventCount(prefs.urlId(url), events.countToday())
+                    }
+                }
+            }.awaitAll().filterNotNull()
         }
         if (prefs.icsSources.isNotEmpty() && feeds.isEmpty()) {
             AppLog.w("ScheduleSync ($reason): no ICS data available, keeping existing alarms")

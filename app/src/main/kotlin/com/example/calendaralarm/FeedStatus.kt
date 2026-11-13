@@ -32,6 +32,10 @@ data class FeedStatus(
         (if (lastSuccessMs == 0L) "never" else DateUtils.getRelativeTimeSpanString(lastSuccessMs)) +
         "\n$problem"
 
+    /** True when no sync has been attempted within the last poll interval. */
+    fun isSyncDue(nowMs: Long, pollIntervalMinutes: Int): Boolean =
+        nowMs - lastAttemptMs >= pollIntervalMinutes * 60_000L
+
     /** True once the feed has been failing too long to be a temporary outage. */
     fun isOverdue(nowMs: Long, pollIntervalMinutes: Int): Boolean =
         problem != null && nowMs - failingSinceMs > maxOf(60L, 2L * pollIntervalMinutes) * 60_000L

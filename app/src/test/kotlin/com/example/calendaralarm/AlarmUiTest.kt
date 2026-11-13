@@ -240,9 +240,13 @@ class AlarmUiTest {
 
     @Test fun `opening the app while an alarm rings shows that alarm`() {
         val id = ringAlarm("Standup")
-        Robolectric.buildActivity(MainActivity::class.java).setup()
-        val started = app.nextStartedActivity
-        assertEquals(AlarmActivity::class.java.name, started.component?.className)
-        assertEquals(id, started.getStringExtra(EXTRA_ALARM_ID))
+        val main = Robolectric.buildActivity(MainActivity::class.java).setup()
+        try {
+            val started = app.nextStartedActivity
+            assertEquals(AlarmActivity::class.java.name, started.component?.className)
+            assertEquals(id, started.getStringExtra(EXTRA_ALARM_ID))
+        } finally {
+            main.pause().stop().destroy()  // stops its FeedSync.attempts collector before later tests
+        }
     }
 }

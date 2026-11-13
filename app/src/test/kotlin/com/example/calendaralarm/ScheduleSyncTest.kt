@@ -19,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.LooperMode
 import org.robolectric.fakes.RoboMenuItem
@@ -55,9 +56,16 @@ class ScheduleSyncTest {
     }
 
     @After fun tearDown() {
+        // Live activities would keep collecting FeedSync.attempts during later tests.
+        mainActivities.forEach { it.pause().stop().destroy() }
         TimeZone.setDefault(savedTz)
         sim.tearDown()
     }
+
+    private val mainActivities = mutableListOf<ActivityController<MainActivity>>()
+
+    private fun launchMainActivity(): MainActivity =
+        Robolectric.buildActivity(MainActivity::class.java).setup().also { mainActivities += it }.get()
 
     private fun bootAndFirstPoll() {
         sim.setUp(startMs)
@@ -79,14 +87,28 @@ class ScheduleSyncTest {
         bootAndFirstPoll()
         assertTrue("poll scheduled tomorrow's alarm", tomorrowTrigger in sim.pendingEventAlarmTriggers())
 
-        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-        val status = activity.findViewById<TextView>(R.id.statusText)
-        idleUntil { status.visibility == View.GONE }
+        val activity = openMainActivity()
         assertTrue("opening the app keeps tomorrow's alarm", tomorrowTrigger in sim.pendingEventAlarmTriggers())
 
         activity.onOptionsItemSelected(RoboMenuItem(R.id.action_refresh))
-        idleUntil { status.visibility == View.GONE }
+        idleUntil { activity.syncJob?.isActive == false }
         assertTrue("refreshing keeps tomorrow's alarm", tomorrowTrigger in sim.pendingEventAlarmTriggers())
+    }
+
+    @Test fun `cached events are shown while a download hangs, and update when it completes`() {
+        sim.setIcsContent(ics(todayEvent))
+        bootAndFirstPoll()
+
+        val release = sim.holdRequests(AlarmSimulator.DEFAULT_PATH)
+        val activity = openMainActivity()
+        activity.onOptionsItemSelected(RoboMenuItem(R.id.action_refresh))
+        idleUntil { sim.requestCount(AlarmSimulator.DEFAULT_PATH) == 2 }
+        val container = activity.findViewById<LinearLayout>(R.id.scheduleContainer)
+        assertEquals("cached event shown during the download", 1, container.childCount)
+
+        sim.setIcsContent(ics(todayEvent, Triple("later@test", "20260618T160000Z", "20260618T170000Z")))
+        release.countDown()
+        idleUntil { activity.syncJob?.isActive == false && container.childCount == 2 }
     }
 
     @Test fun `concurrent syncs run one at a time and every registered alarm is tracked`() {
@@ -138,7 +160,7 @@ class ScheduleSyncTest {
         sim.failSource(AlarmSimulator.DEFAULT_PATH)
         sim.runUntil(startMs + 20 * 60_000L)
 
-        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val activity = launchMainActivity()
         val banner = activity.findViewById<TextView>(R.id.feedProblemsText)
         idleUntil { banner.visibility == View.VISIBLE }
         assertTrue(banner.text.toString(), banner.text.contains("HTTP 500"))
@@ -165,7 +187,7 @@ class ScheduleSyncTest {
     }
 
     private fun openMainActivity(): MainActivity {
-        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val activity = launchMainActivity()
         idleUntil { activity.findViewById<TextView>(R.id.statusText).visibility == View.GONE }
         return activity
     }
@@ -225,7 +247,7 @@ class ScheduleSyncTest {
         sim.runUntil(startMs + 20 * 60_000L)
 
         assertEquals(listOf(tomorrowTrigger), sim.pendingEventAlarmTriggers())
-        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val activity = launchMainActivity()
         val banner = activity.findViewById<TextView>(R.id.feedProblemsText)
         idleUntil { banner.visibility == View.VISIBLE }
         assertTrue(banner.text.toString(), banner.text.contains("filter_data_f1"))

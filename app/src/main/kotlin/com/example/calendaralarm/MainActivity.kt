@@ -17,10 +17,13 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.calendaralarm.databinding.ActivityMainBinding
 import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -33,15 +36,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
 
-    private var lastLoadMs   = 0L
-    private var lastLoadDate: LocalDate? = null
-    private var lastVisibleDay: LocalDate? = null
     private var refreshMenuItem: MenuItem? = null
+
+    /** The background sync started by this screen, if any. */
+    internal var syncJob: Job? = null
+        private set
 
     private val handler = Handler(Looper.getMainLooper())
     private val minuteRefreshRunnable = object : Runnable {
         override fun run() {
-            loadSchedule(silent = true)
+            render()
             handler.postDelayed(this, 60_000L)
         }
     }
@@ -56,7 +60,13 @@ class MainActivity : AppCompatActivity() {
         requestNotificationPermissionIfNeeded()
         promptForAlarmPermissions()
         AlarmScheduler.ensurePollScheduled(this)
-        loadSchedule()
+
+        // Every feed sync (ours, the poll's, or a settings reload) may change what is shown.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                FeedSync.attempts.collect { render() }
+            }
+        }
     }
 
     override fun onResume() {
@@ -67,7 +77,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, AlarmActivity::class.java).putExtra(EXTRA_ALARM_ID, ringing.id))
             return
         }
-        loadSchedule()
+        render()
+        val now = AppClock.now()
+        if (prefs.icsSources.any { prefs.feedStatus(prefs.urlId(it)).isSyncDue(now, prefs.pollIntervalMinutes) }) {
+            sync("app opened")
+        }
         handler.postDelayed(minuteRefreshRunnable, 60_000L)
     }
 
@@ -79,12 +93,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
         refreshMenuItem = menu.findItem(R.id.action_refresh)
+        refreshMenuItem?.isEnabled = syncJob?.isActive != true
         return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
-        R.id.action_refresh  -> { loadSchedule(syncAlarms = true); true }
+        R.id.action_refresh  -> { sync("user refresh"); true }
         else -> super.onOptionsItemSelected(item)
     }
 
@@ -98,31 +113,32 @@ class MainActivity : AppCompatActivity() {
 
     // ── Schedule loading ──────────────────────────────────────────────────────
 
-    private fun loadSchedule(syncAlarms: Boolean = false, silent: Boolean = false) {
+    /** Syncs feeds and alarms in the background; [render] runs as each feed finishes. */
+    private fun sync(reason: String) {
+        if (syncJob?.isActive == true) return
+        refreshMenuItem?.isEnabled = false
+        syncJob = lifecycleScope.launch {
+            withContext(Dispatchers.IO) { ScheduleSync.run(this@MainActivity, reason) }
+            refreshMenuItem?.isEnabled = true
+            render()  // also covers local calendars and settings, which have no feed attempt
+        }
+    }
+
+    /** Shows the schedule from the most recently downloaded feeds; never waits on the network. */
+    private fun render() {
         val now    = AppClock.nowLocal()
         val today  = now.toLocalDate()
         val visDay = visibleDay(now)
-
-        lastLoadMs     = System.currentTimeMillis()
-        lastLoadDate   = today
-        lastVisibleDay = visDay
 
         if (prefs.icsSources.isEmpty() && !prefs.localCalendarEnabled) {
             showMessage("Tap the gear icon to add a calendar source.")
             return
         }
 
-        if (!silent) {
-            refreshMenuItem?.isEnabled = false
-            binding.statusText.text = "Loading…"
-            binding.statusText.visibility = View.VISIBLE
-        }
-
         lifecycleScope.launch {
             // Returns events for the visible window paired with their alarm-enabled flag,
-            // or null if the settings are unreadable or every fetch failed.
+            // or null if the settings are unreadable or there is no calendar data at all.
             val displayEvents: List<Pair<CalendarEvent, Boolean>>? = withContext(Dispatchers.IO) {
-                if (syncAlarms) ScheduleSync.run(this@MainActivity, "user refresh")
                 val (filters, preferences) = ScheduleSync.readEventSettings(prefs) ?: return@withContext null
 
                 val zone        = ZoneId.systemDefault()
@@ -130,14 +146,14 @@ class MainActivity : AppCompatActivity() {
                 val windowStart = if (visDay == today) visDayStart else now.atZone(zone).toInstant()
                 val windowEnd   = visDay.plusDays(1).atStartOfDay(zone).toInstant()
 
-                val icsTexts = IcsFetcher.fetchAll(this@MainActivity)
-                    .mapNotNull { source -> source.text?.let { source.url to it } }
+                val icsTexts = prefs.icsSources.mapNotNull { url ->
+                    IcsFetcher.cached(this@MainActivity, url)?.let { url to it }
+                }
 
                 val localEvents = if (prefs.localCalendarEnabled && prefs.localCalendarIds.isNotEmpty()) {
                     LocalCalendarReader.fetchEvents(this@MainActivity, prefs.localCalendarIds, windowStart, windowEnd)
                 } else emptyList()
 
-                // Fail only if ICS was configured but all fetches failed and there's no local fallback
                 if (prefs.icsSources.isNotEmpty() && icsTexts.isEmpty() && localEvents.isEmpty()) {
                     return@withContext null
                 }
@@ -159,7 +175,7 @@ class MainActivity : AppCompatActivity() {
             when {
                 displayEvents == null    -> showMessage(
                     if (prefs.settingsProblem != null) "Event settings could not be read."
-                    else "Failed to load calendar. Check URL and network.")
+                    else "No calendar data has been downloaded yet.")
                 displayEvents.isEmpty()  ->
                     showMessage(if (visDay == today) "No events today." else "No events tomorrow.")
                 else -> {
@@ -181,7 +197,6 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            refreshMenuItem?.isEnabled = true
         }
     }
 
@@ -235,7 +250,7 @@ class MainActivity : AppCompatActivity() {
         bellIcon.contentDescription = if (alarmEnabled) "Alarm enabled" else "Alarm disabled"
         bellIcon.setOnClickListener {
             setEventAlarm(this, event, EventPreference.Scope.EVENT, !alarmEnabled)
-            loadSchedule(silent = true)
+            render()
         }
 
         val locationView = view.findViewById<TextView>(R.id.eventLocation)
