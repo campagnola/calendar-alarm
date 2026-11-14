@@ -11,6 +11,8 @@ import android.os.Looper
 import android.os.VibrationAttributes
 import android.os.VibratorManager
 import android.provider.Settings
+import android.text.Spanned
+import android.text.style.URLSpan
 import android.widget.Button
 import android.widget.TextView
 import com.example.calendaralarm.AlarmInstance.State
@@ -248,5 +250,26 @@ class AlarmUiTest {
         } finally {
             main.pause().stop().destroy()  // stops its FeedSync.attempts collector before later tests
         }
+    }
+
+    @Test fun `event details show URLs as links in selectable text`() {
+        val start = Instant.now()
+        val event = CalendarEvent(uid = "links@test", summary = "Links", start = start,
+                                  end = start.plus(Duration.ofHours(1)), isAllDay = false,
+                                  location = "https://example.com/room",
+                                  description = "Agenda at https://example.com/agenda")
+        val intent = Intent(context, EventDetailActivity::class.java)
+            .putExtra(EventDetailActivity.EXTRA_EVENT_JSON, event.toJson())
+        val detail = Robolectric.buildActivity(EventDetailActivity::class.java, intent).setup().get()
+
+        for (viewId in listOf(R.id.detailDescription, R.id.detailLocation)) {
+            val view = detail.findViewById<TextView>(viewId)
+            assertTrue(view.isTextSelectable)
+            val links = (view.text as Spanned).getSpans(0, view.text.length, URLSpan::class.java)
+            assertEquals(1, links.size)
+        }
+        assertEquals("https://example.com/agenda",
+            (detail.findViewById<TextView>(R.id.detailDescription).text as Spanned)
+                .getSpans(0, Int.MAX_VALUE, URLSpan::class.java).single().url)
     }
 }

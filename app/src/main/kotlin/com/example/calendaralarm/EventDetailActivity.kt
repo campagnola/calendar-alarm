@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.text.TextPaint
+import android.text.util.Linkify
+import android.util.Patterns
 import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
@@ -62,16 +64,22 @@ class EventDetailActivity : AppCompatActivity() {
     private fun populateEventDetails() {
         val fmt = timeFormatter(this)
 
-        binding.detailTitle.text = event.summary
+        binding.detailTitle.setSelectableText(event.summary)
         binding.detailTime.text  = if (event.isAllDay) "All day"
             else "${event.localStart.format(fmt)} – ${event.localEnd.format(fmt)}"
 
         if (event.location.isNotEmpty()) {
-            binding.detailLocation.text = event.location
             binding.detailLocation.visibility = View.VISIBLE
-            binding.detailLocation.setTextColor(themeColor(android.R.attr.colorAccent))
-            binding.detailLocation.paintFlags = binding.detailLocation.paintFlags or TextPaint.UNDERLINE_TEXT_FLAG
-            binding.detailLocation.setOnClickListener { openLocationInMaps(event.location) }
+            // A location containing a URL (e.g. a meeting link) gets inline links; otherwise the
+            // whole location is a maps link, which would conflict with text selection.
+            if (Patterns.WEB_URL.matcher(event.location).find()) {
+                binding.detailLocation.setSelectableText(event.location)
+            } else {
+                binding.detailLocation.text = event.location
+                binding.detailLocation.setTextColor(themeColor(android.R.attr.colorAccent))
+                binding.detailLocation.paintFlags = binding.detailLocation.paintFlags or TextPaint.UNDERLINE_TEXT_FLAG
+                binding.detailLocation.setOnClickListener { openLocationInMaps(event.location) }
+            }
         }
 
         val meetingUrl = event.meetingUrl
@@ -86,13 +94,13 @@ class EventDetailActivity : AppCompatActivity() {
 
         if (event.description.isNotEmpty()) {
             binding.detailDescriptionHeader.visibility = View.VISIBLE
-            binding.detailDescription.text = event.description
+            binding.detailDescription.setSelectableText(event.description)
             binding.detailDescription.visibility = View.VISIBLE
         }
 
         if (event.organizer.isNotEmpty()) {
             binding.detailOrganizerHeader.visibility = View.VISIBLE
-            binding.detailOrganizer.text = event.organizer
+            binding.detailOrganizer.setSelectableText(event.organizer)
             binding.detailOrganizer.visibility = View.VISIBLE
         }
 
@@ -100,7 +108,7 @@ class EventDetailActivity : AppCompatActivity() {
             binding.detailAttendeesHeader.visibility = View.VISIBLE
             for (attendee in event.attendees) {
                 val tv = TextView(this)
-                tv.text = attendee
+                tv.setSelectableText(attendee)
                 tv.textSize = 14f
                 val lp = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -329,6 +337,14 @@ class EventDetailActivity : AppCompatActivity() {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Shows [text] selectable, with URLs, emails and phone numbers as tappable links. */
+    private fun TextView.setSelectableText(text: String) {
+        setTextIsSelectable(true)
+        // Must be set before the text: links are created when the text is assigned.
+        autoLinkMask = Linkify.WEB_URLS or Linkify.EMAIL_ADDRESSES or Linkify.PHONE_NUMBERS
+        this.text = text
+    }
 
     private fun themeColor(attr: Int): Int {
         val ta = theme.obtainStyledAttributes(intArrayOf(attr))
