@@ -14,9 +14,9 @@ class AlarmSoundTest {
         assertEquals(60_000L, sound.nextChangeAt(0L))
     }
 
-    @Test fun `fades from the start to the max volume, then holds`() {
+    @Test fun `fades from the start to the max volume evenly in decibels, then holds`() {
         assertEquals(0.10f, sound.volumeAt(60_000L)!!, 1e-6f)
-        assertEquals(0.30f, sound.volumeAt(80_000L)!!, 1e-6f)
+        assertEquals(0.2236068f, sound.volumeAt(80_000L)!!, 1e-6f)  // geometric mean of 0.10 and 0.50
         assertEquals(0.50f, sound.volumeAt(100_000L)!!, 1e-6f)
         assertEquals(0.50f, sound.volumeAt(10 * 60_000L)!!, 1e-6f)
     }
@@ -25,6 +25,13 @@ class AlarmSoundTest {
         assertEquals(60_000L + AlarmSound.FADE_STEP_MS, sound.nextChangeAt(60_000L))
         assertEquals(100_000L, sound.nextChangeAt(99_900L))
         assertNull(sound.nextChangeAt(100_000L))
+    }
+
+    @Test fun `a zero start volume fades in from 40 dB below the max`() {
+        val fromSilence = sound.copy(startVolume = 0)
+        assertEquals(0.005f, fromSilence.volumeAt(60_000L)!!, 1e-6f)
+        assertEquals(0.05f, fromSilence.volumeAt(80_000L)!!, 1e-6f)
+        assertEquals(0f, fromSilence.copy(maxVolume = 0).volumeAt(80_000L)!!, 0f)
     }
 
     @Test fun `no fade jumps to the max volume`() {

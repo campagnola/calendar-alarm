@@ -1,8 +1,11 @@
 package com.example.calendaralarm
 
+import kotlin.math.pow
+
 /**
  * The global alarm sound: [uri] (null for none) starts [delayMs] after an alarm starts ringing, then
- * fades from [startVolume] to [maxVolume] over [fadeMs]. Volumes are percentages of the alarm stream volume.
+ * fades from [startVolume] to [maxVolume] over [fadeMs], at a constant rate in decibels. Volumes are
+ * percentages of the alarm stream volume; the fade starts no lower than [FADE_RANGE_DB] below [maxVolume].
  */
 data class AlarmSound(
     val uri: String?,
@@ -20,7 +23,10 @@ data class AlarmSound(
     fun volumeAt(elapsedMs: Long): Float? {
         if (uri == null || elapsedMs < delayMs) return null
         val progress = if (elapsedMs - delayMs >= fadeMs) 1f else (elapsedMs - delayMs).toFloat() / fadeMs
-        return (startVolume + (maxVolume - startVolume) * progress) / 100f
+        val to = maxVolume / 100f
+        val from = maxOf(startVolume / 100f, to * 10f.pow(-FADE_RANGE_DB / 20f))
+        if (from == 0f) return 0f  // both volumes are 0
+        return from * (to / from).pow(progress)
     }
 
     /** Ms after ringing started at which the volume next changes; null once it is constant. */
@@ -33,6 +39,7 @@ data class AlarmSound(
 
     companion object {
         const val FADE_STEP_MS = 250L
+        const val FADE_RANGE_DB = 40f
         val DEFAULT = AlarmSound(uri = null, delayMs = 60_000L, startVolume = 0, maxVolume = 50, fadeMs = 60_000L)
     }
 }

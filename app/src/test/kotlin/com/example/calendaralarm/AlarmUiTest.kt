@@ -325,7 +325,7 @@ class AlarmUiTest {
         assertEquals(AudioAttributes.USAGE_ALARM, focus.audioFocusRequest.audioAttributes.usage)
 
         advance(30)
-        assertEquals(0.30f, player.leftVolume, 1e-6f)
+        assertEquals(0.2236068f, player.leftVolume, 1e-6f)
         advance(60)
         assertEquals(0.50f, player.leftVolume, 1e-6f)
         assertEquals(1, players.size)
@@ -406,7 +406,7 @@ class AlarmUiTest {
 
         startRingingService()
 
-        assertEquals(0.30f, players.single().leftVolume, 1e-6f)
+        assertEquals(0.2236068f, players.single().leftVolume, 1e-6f)
     }
 
     @Test fun `no sound selected plays nothing`() {
