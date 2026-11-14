@@ -1,6 +1,11 @@
 # Calendar Alarm
 
-An Android app that monitors calendar events from multiple sources and fires alarm notifications before they start. Supports ICS calendar URLs, local device calendars, flexible event filters, and quiet hours.
+An Android app that monitors calendar events from multiple sources and fires alarm notifications before they start. 
+
+This is my solution to constantly missing events, meetings, and reminders because they were spread out over too many calendars and the phone notifications were too easy to miss. 
+The default behavior for all events is a persistent alarm--it keeps bugging you until you silence it. 
+
+Supports ICS calendar URLs, local device calendars, flexible event filters, and quiet hours.
 
 ## Features
 
