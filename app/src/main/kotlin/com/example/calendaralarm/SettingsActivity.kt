@@ -3,11 +3,14 @@ package com.example.calendaralarm
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.example.calendaralarm.databinding.ActivitySettingsBinding
@@ -18,6 +21,16 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: Prefs
+    private var soundUri: String? = null  // the picked sound, stored by save()
+
+    private val pickSound = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        @Suppress("DEPRECATION")
+        // A null pick is the picker's "Silent" choice.
+        soundUri = checkNotNull(result.data) { "sound picker returned no data" }
+            .getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)?.toString()
+        showSound()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,7 +58,21 @@ class SettingsActivity : AppCompatActivity() {
         binding.quietEndInput.setText(minutesToHhmm(prefs.quietHoursEndMinutes))
         binding.quietHoursAlarmCheckbox.isChecked = prefs.quietHoursAlarmEnabled
 
+        val sound = prefs.alarmSound
+        soundUri = if (savedInstanceState != null) savedInstanceState.getString(STATE_SOUND_URI) else sound.uri
+        showSound()
+        binding.soundButton.setOnClickListener { pickSound.launch(soundPickerIntent()) }
+        binding.soundDelayInput.setText((sound.delayMs / 1000).toString())
+        binding.soundFadeInput.setText((sound.fadeMs / 1000).toString())
+        binding.soundStartVolumeInput.setText(sound.startVolume.toString())
+        binding.soundMaxVolumeInput.setText(sound.maxVolume.toString())
+
         binding.saveButton.setOnClickListener { save() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_SOUND_URI, soundUri)
     }
 
     override fun onResume() {
@@ -115,6 +142,19 @@ class SettingsActivity : AppCompatActivity() {
         return prefs.feedStatus(id).summary(prefs.icsLastFetchEventCount(id))
     }
 
+    private fun soundPickerIntent() = Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+        .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+        .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Alarm sound")
+        .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+        .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+        .putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, soundUri?.let(Uri::parse))
+
+    private fun showSound() {
+        val name = soundUri?.let { RingtoneManager.getRingtone(this, Uri.parse(it))?.getTitle(this) ?: "unavailable ($it)" }
+            ?: "None"
+        binding.soundButton.text = "Sound: $name"
+    }
+
     private fun minutesToHhmm(minutes: Int) = "%02d:%02d".format(minutes / 60, minutes % 60)
 
     private fun parseHhmm(s: String): Int? {
@@ -140,6 +180,14 @@ class SettingsActivity : AppCompatActivity() {
         if (quietEnd != null) prefs.quietHoursEndMinutes = quietEnd
         else Toast.makeText(this, "Invalid time for \"Quiet hours end\" — use HH:MM", Toast.LENGTH_SHORT).show()
         prefs.quietHoursAlarmEnabled = binding.quietHoursAlarmCheckbox.isChecked
+        val d = AlarmSound.DEFAULT
+        prefs.alarmSound = AlarmSound(
+            uri         = soundUri,
+            delayMs     = binding.soundDelayInput.text.toString().toLongOrNull()?.times(1000) ?: d.delayMs,
+            startVolume = binding.soundStartVolumeInput.text.toString().toIntOrNull()?.coerceAtMost(100) ?: d.startVolume,
+            maxVolume   = binding.soundMaxVolumeInput.text.toString().toIntOrNull()?.coerceAtMost(100) ?: d.maxVolume,
+            fadeMs      = binding.soundFadeInput.text.toString().toLongOrNull()?.times(1000) ?: d.fadeMs
+        )
         AlarmScheduler.schedulePoll(this, 0L)
 
         when {
@@ -185,4 +233,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     override fun onSupportNavigateUp(): Boolean { finish(); return true }
+
+    companion object {
+        private const val STATE_SOUND_URI = "sound_uri"
+    }
 }

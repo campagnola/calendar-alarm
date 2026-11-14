@@ -1,6 +1,7 @@
 package com.example.calendaralarm
 
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -36,6 +37,7 @@ class AlarmActivity : AppCompatActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        volumeControlStream = AudioManager.STREAM_ALARM
 
         setContentView(R.layout.activity_alarm)
 

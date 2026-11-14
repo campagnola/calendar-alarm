@@ -12,12 +12,18 @@ import android.os.*
 
 /**
  * The sole owner of the ringing hardware and the ringing notifications. It renders every RINGING
- * alarm in [AlarmStore] (one notification each, one vibration) and stops itself when none remain.
+ * alarm in [AlarmStore] (one notification each, one vibration, one sound) and stops itself when none remain.
  */
 class AlarmService : Service() {
 
     private var vibrator: Vibrator? = null
     private var screenOnReceiver: BroadcastReceiver? = null
+    private lateinit var sound: AlarmSoundPlayer
+
+    override fun onCreate() {
+        super.onCreate()
+        sound = AlarmSoundPlayer(this)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // A null intent is the system restarting the service after its process died.
@@ -32,7 +38,10 @@ class AlarmService : Service() {
     /** Posts a notification for each ringing alarm and rings; false if nothing is ringing. */
     private fun render(): Boolean {
         val ringing = AlarmStore.from(this).ringing()
-        if (ringing.isEmpty()) return false
+        if (ringing.isEmpty()) {
+            sound.update(null)
+            return false
+        }
         AppLog.i("AlarmService: rendering ${ringing.map { it.id }}")
 
         // The most recent alarm holds the foreground slot; the others are plain notifications.
@@ -54,6 +63,8 @@ class AlarmService : Service() {
             NotificationHelper.showPermissionReminder(this, PermissionPrompt.FULL_SCREEN_INTENT)
         }
         if (vibrator == null) startVibration()
+        // The sound follows the alarm that has rung longest.
+        sound.update(ringing.minOf { it.updatedMs })
         if (screenOnReceiver == null) registerScreenOnReceiver()
         return true
     }
@@ -108,6 +119,7 @@ class AlarmService : Service() {
     override fun onDestroy() {
         AppLog.i("AlarmService onDestroy")
         vibrator?.cancel()
+        sound.update(null)
         screenOnReceiver?.let { unregisterReceiver(it) }
         stopForeground(STOP_FOREGROUND_REMOVE)
         cancelRingingNotifications(except = emptySet())

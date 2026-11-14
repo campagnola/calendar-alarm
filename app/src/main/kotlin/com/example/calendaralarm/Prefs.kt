@@ -54,6 +54,25 @@ class Prefs(context: Context) {
         get() = p.getBoolean("quiet_alarm_enabled", true)
         set(v) = p.edit().putBoolean("quiet_alarm_enabled", v).apply()
 
+    var alarmSound: AlarmSound
+        get() {
+            val d = AlarmSound.DEFAULT
+            return AlarmSound(
+                uri         = p.getString("sound_uri", d.uri),
+                delayMs     = p.getLong("sound_delay_ms", d.delayMs),
+                startVolume = p.getInt("sound_start_vol", d.startVolume),
+                maxVolume   = p.getInt("sound_max_vol", d.maxVolume),
+                fadeMs      = p.getLong("sound_fade_ms", d.fadeMs)
+            )
+        }
+        set(v) = p.edit()
+            .putString("sound_uri", v.uri)
+            .putLong("sound_delay_ms", v.delayMs)
+            .putInt("sound_start_vol", v.startVolume)
+            .putInt("sound_max_vol", v.maxVolume)
+            .putLong("sound_fade_ms", v.fadeMs)
+            .apply()
+
     var lastPollTime: Long
         get() = p.getLong("last_poll", 0L)
         set(v) = p.edit().putLong("last_poll", v).apply()

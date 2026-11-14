@@ -14,6 +14,7 @@ An Android app that monitors calendar events from multiple sources and fires ala
 - **Recurring events** — full RRULE support (daily/weekly/monthly/yearly with BYDAY, BYMONTHDAY, COUNT, UNTIL, EXDATE)
 - **Efficient polling** — respects HTTP ETags and Last-Modified headers to minimise data usage
 - **Survives reboots** — alarms are restored automatically after device restart
+- **Optional alarm sound** — any system alarm sound, starting after a delay and fading in to a maximum volume (a percentage of the device's alarm volume)
 
 
 ## Getting an ICS Link

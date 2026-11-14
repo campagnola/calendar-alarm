@@ -7,6 +7,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Looper
 import android.os.VibrationAttributes
 import android.os.VibratorManager
@@ -30,7 +35,11 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowAlarmManager
+import org.robolectric.shadows.ShadowMediaPlayer
+import org.robolectric.shadows.util.DataSource
+import java.io.IOException
 import java.io.File
 import java.time.Duration
 import java.time.Instant
@@ -46,6 +55,7 @@ class AlarmUiTest {
 
     @After fun tearDown() {
         ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        AppClock.override = null
     }
 
     /** Plans and triggers an alarm for one event; its service start is left queued. Returns its id. */
@@ -63,9 +73,11 @@ class AlarmUiTest {
     }
 
     /** Runs the service for the queued alarm starts. */
-    private fun startRingingService() {
-        val service = Robolectric.buildService(AlarmService::class.java).create().get()
-        while (true) service.onStartCommand(app.nextStartedService ?: break, 0, 1)
+    private fun startRingingService(): ServiceController<AlarmService> =
+        Robolectric.buildService(AlarmService::class.java).create().also { deliverStarts(it) }
+
+    private fun deliverStarts(service: ServiceController<AlarmService>) {
+        while (true) service.get().onStartCommand(app.nextStartedService ?: break, 0, 1)
     }
 
     private fun ringingNotification(id: String) =
@@ -271,5 +283,151 @@ class AlarmUiTest {
         assertEquals("https://example.com/agenda",
             (detail.findViewById<TextView>(R.id.detailDescription).text as Spanned)
                 .getSpans(0, Int.MAX_VALUE, URLSpan::class.java).single().url)
+    }
+
+    // ── Sound ────────────────────────────────────────────────────────────────
+
+    private val alarmUri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+
+    private val mediaPlayers = mutableListOf<MediaPlayer>()
+
+    /** Players the app creates, in order. */
+    private fun soundSetup(uri: Uri? = alarmUri): List<ShadowMediaPlayer> {
+        ShadowMediaPlayer.addMediaInfo(DataSource.toDataSource(context, alarmUri), ShadowMediaPlayer.MediaInfo(3_600_000, 0))
+        Prefs(context).alarmSound = AlarmSound.DEFAULT.copy(uri = uri?.toString(), startVolume = 10)
+        AppClock.override = System.currentTimeMillis()
+        val players = mutableListOf<ShadowMediaPlayer>()
+        ShadowMediaPlayer.setCreateListener { player, shadow -> players.add(shadow); mediaPlayers.add(player) }
+        return players
+    }
+
+    /** Advances the wall clock and runs what the main looper had scheduled up to then. */
+    private fun advance(seconds: Long) {
+        AppClock.override = AppClock.now() + seconds * 1000
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(seconds))
+    }
+
+    private val ShadowMediaPlayer.isPlaying get() = state == ShadowMediaPlayer.State.STARTED
+
+    @Test fun `the sound starts after its delay as an alarm and fades to its max volume`() {
+        val players = soundSetup()
+        ringAlarm("Standup")
+        startRingingService()
+
+        advance(59)
+        assertTrue(players.isEmpty())
+        advance(1)
+        val player = players.single()
+        assertTrue(player.isPlaying)
+        assertTrue(mediaPlayers.single().isLooping)
+        assertEquals(0.10f, player.leftVolume, 1e-6f)
+        val focus = shadowOf(context.getSystemService(AudioManager::class.java)).lastAudioFocusRequest
+        assertEquals(AudioAttributes.USAGE_ALARM, focus.audioFocusRequest.audioAttributes.usage)
+
+        advance(30)
+        assertEquals(0.30f, player.leftVolume, 1e-6f)
+        advance(60)
+        assertEquals(0.50f, player.leftVolume, 1e-6f)
+        assertEquals(1, players.size)
+    }
+
+    @Test fun `dismissing stops the sound and it does not come back`() {
+        val players = soundSetup()
+        val id = ringAlarm("Standup")
+        val service = startRingingService()
+        advance(70)
+        assertTrue(players.single().isPlaying)
+
+        AlarmController.from(context).dismiss(id)
+        service.destroy()
+        advance(10 * 60)
+
+        assertEquals(ShadowMediaPlayer.State.END, players.single().state)
+        assertEquals(1, players.size)
+    }
+
+    @Test fun `an alarm dismissed during the delay never sounds`() {
+        val players = soundSetup()
+        val id = ringAlarm("Standup")
+        val service = startRingingService()
+        advance(30)
+
+        AlarmController.from(context).dismiss(id)
+        service.destroy()
+        advance(10 * 60)
+
+        assertTrue(players.isEmpty())
+    }
+
+    @Test fun `snoozing silences the sound and the delay restarts when it rings again`() {
+        val players = soundSetup()
+        val id = ringAlarm("Standup")
+        val service = startRingingService()
+        advance(70)
+        val controller = AlarmController.from(context)
+
+        controller.snooze(id)
+        assertNull(app.nextStartedService)  // nothing rings, so the service is stopped
+        service.destroy()
+        assertEquals(ShadowMediaPlayer.State.END, players.single().state)
+
+        controller.onTrigger(id)
+        startRingingService()
+        advance(59)
+        assertEquals(1, players.size)
+        advance(1)
+        assertTrue(players.last().isPlaying)
+        assertEquals(0.10f, players.last().leftVolume, 1e-6f)
+    }
+
+    @Test fun `the sound follows the alarm that has rung longest`() {
+        val players = soundSetup()
+        val first = ringAlarm("First")
+        val service = startRingingService()
+        advance(50)
+        ringAlarm("Second")
+        deliverStarts(service)
+        advance(20)
+        assertTrue(players.single().isPlaying)
+
+        AlarmController.from(context).dismiss(first)
+        deliverStarts(service)
+        assertEquals(ShadowMediaPlayer.State.END, players.single().state)
+
+        advance(40)
+        assertTrue(players.last().isPlaying)
+        assertEquals(2, players.size)
+    }
+
+    @Test fun `a restarted service resumes the fade where it was`() {
+        val players = soundSetup()
+        ringAlarm("Standup")
+        AppClock.override = AppClock.now() + 90_000L
+
+        startRingingService()
+
+        assertEquals(0.30f, players.single().leftVolume, 1e-6f)
+    }
+
+    @Test fun `no sound selected plays nothing`() {
+        val players = soundSetup(uri = null)
+        ringAlarm("Standup")
+        startRingingService()
+        advance(5 * 60)
+        assertTrue(players.isEmpty())
+    }
+
+    @Test fun `an unplayable sound falls back to the default alarm sound`() {
+        val broken = Uri.parse("content://media/external/audio/media/404")
+        val players = soundSetup(uri = broken)
+        ShadowMediaPlayer.addException(DataSource.toDataSource(context, broken), IOException("gone"))
+        ringAlarm("Standup")
+        startRingingService()
+
+        advance(60)
+
+        assertEquals(ShadowMediaPlayer.State.END, players.first().state)
+        assertTrue(players.last().isPlaying)
+        assertEquals(DataSource.toDataSource(context, alarmUri), players.last().dataSource)
     }
 }

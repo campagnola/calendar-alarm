@@ -44,3 +44,14 @@ Unit tests (Robolectric) cover the store, state machine and rendering logic. The
 ## F. Foreground-service start rules (Android 12+)
 - [ ] An alarm fires with the app idle in the background for a long time (Doze: `adb shell dumpsys deviceidle force-idle`): the service starts, with no `ForegroundServiceStartNotAllowedException` in logcat.
 - [ ] Swipe the notification away with the app in the background: the re-post works, with no FGS start exception.
+
+## G. Sound (select a sound in Settings; defaults: 60 s delay, 0 → 50% over 60 s)
+- [ ] Phone locked, screen off: the sound starts 60 s after the alarm, at no audible volume, and is clearly louder by 2 minutes (log: `AlarmSoundPlayer: started`).
+- [ ] Dismiss during the delay: no sound ever plays.
+- [ ] Dismiss, snooze, or let it time out while sounding: the sound stops immediately and does not return. After a snooze ends, it is silent again for the delay.
+- [ ] Two alarms ringing: one sound, following the alarm that started first. Dismiss that one: the sound stops until the remaining alarm's delay has passed.
+- [ ] `adb shell am kill` while sounding: after the service restarts, the sound resumes at the faded-in volume, not from zero.
+- [ ] Volume keys on the alarm screen change the alarm volume.
+- [ ] Do Not Disturb on, ring mode silent: it still sounds (USAGE_ALARM). Music that was playing pauses while it sounds and resumes afterwards.
+- [ ] Select a custom sound, then delete the file: the default alarm sound plays instead (log: `playing the default alarm sound`).
+- [ ] Sound set to None: nothing plays.
