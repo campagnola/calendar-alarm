@@ -40,6 +40,7 @@ class EventDetailActivity : AppCompatActivity() {
         populateEventDetails()
         populateFilters()
         populateAlarmPreferences()
+        populateAdvancePreference()
 
         binding.addFilterButton.setOnClickListener {
             if (binding.filterCreatePanel.visibility == View.GONE) {
@@ -164,6 +165,46 @@ class EventDetailActivity : AppCompatActivity() {
         setEventAlarm(this, event, scope, alarmEnabled)
         updateAlarmPreferenceStatus()
         Toast.makeText(this, "Alarm preference saved", Toast.LENGTH_SHORT).show()
+    }
+
+    // ── Advance warning ──────────────────────────────────────────────────────
+
+    private fun populateAdvancePreference() {
+        val override = FilterEngine.advanceOverride(event, prefs.eventPreferences.associateBy { it.key })
+        binding.advanceInput.setText(override?.toString() ?: "")
+        updateAdvanceStatus()
+
+        binding.saveAdvanceButton.setOnClickListener {
+            val minutes = binding.advanceInput.text.toString().toIntOrNull()
+            if (minutes == null) {
+                Toast.makeText(this, "Enter a number of minutes", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            saveAdvancePreference(minutes)
+        }
+        binding.resetAdvanceButton.setOnClickListener {
+            binding.advanceInput.setText("")
+            saveAdvancePreference(null)
+        }
+    }
+
+    private fun updateAdvanceStatus() {
+        val preferences = prefs.eventPreferences
+        val flags = FilterEngine.effectiveFlags(listOf(event), prefs.eventFilters, preferences).getValue(event)
+        val minutes = flags.advanceMinutesOr(prefs.advanceMinutes)
+        val anchor = if (flags.advanceRelativeToEnd) "end" else "start"
+        val source = when {
+            FilterEngine.advanceOverride(event, preferences.associateBy { it.key }) != null -> "set for this event"
+            flags.advanceMinutes != null -> "from filter"
+            else -> "default"
+        }
+        binding.advanceStatus.text = "Alarm $minutes min before $anchor ($source)."
+    }
+
+    private fun saveAdvancePreference(minutes: Int?) {
+        setEventAdvance(this, event, minutes)
+        updateAdvanceStatus()
+        Toast.makeText(this, "Reminder saved", Toast.LENGTH_SHORT).show()
     }
 
     // ── Filter matching ───────────────────────────────────────────────────────

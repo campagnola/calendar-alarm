@@ -188,6 +188,59 @@
             android:visibility="gone"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
+        <!-- ── Advance warning ───────────────────────────────── -->
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Reminder"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:layout_marginTop="18dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/advanceStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Minutes before start"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/advanceInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/saveAdvanceButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Set" />
+
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/resetAdvanceButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Use filter / default reminder"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
         <!-- ── Filter creation panel ─────────────────────────── -->
 
         <LinearLayout

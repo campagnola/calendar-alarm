@@ -8,7 +8,9 @@ object FilterEngine {
         val advanceMinutes: Int? = null,         // null = use global default
         val advanceRelativeToEnd: Boolean = false,
         val quietHoursMode: FilterAction.QuietHoursMode? = null
-    )
+    ) {
+        fun advanceMinutesOr(default: Int): Int = advanceMinutes ?: default
+    }
 
     /** Evaluate all filters against an event; later filters override earlier ones. */
     fun evaluate(event: CalendarEvent, filters: List<EventFilter>): EventFlags {
@@ -33,7 +35,7 @@ object FilterEngine {
         return EventFlags(alarmEnabled, visible, advanceMin, relativeToEnd, quietHoursMode)
     }
 
-    /** Filter flags per event, overridden by series then per-event alarm preferences. */
+    /** Filter flags per event, overridden by series then per-event preferences. */
     fun effectiveFlags(
         events: List<CalendarEvent>,
         filters: List<EventFilter>,
@@ -41,10 +43,18 @@ object FilterEngine {
     ): Map<CalendarEvent, EventFlags> {
         val prefByKey = preferences.associateBy { it.key }
         return events.associateWith { event ->
-            val flags = evaluate(event, filters)
-            alarmOverride(event, prefByKey)?.let { (_, enabled) -> flags.copy(alarmEnabled = enabled) } ?: flags
+            var flags = evaluate(event, filters)
+            alarmOverride(event, prefByKey)?.let { (_, enabled) -> flags = flags.copy(alarmEnabled = enabled) }
+            advanceOverride(event, prefByKey)?.let {
+                flags = flags.copy(advanceMinutes = it, advanceRelativeToEnd = false)
+            }
+            flags
         }
     }
+
+    /** The per-event advance warning (minutes before start) overriding filters and the default. */
+    fun advanceOverride(event: CalendarEvent, prefByKey: Map<String, EventPreference>): Int? =
+        prefByKey[EventPreference.eventKey(event)]?.advanceMinutes
 
     /** The preference overriding [event]'s filter alarm setting, as (scope, enabled): per-event wins over series. */
     fun alarmOverride(event: CalendarEvent, prefByKey: Map<String, EventPreference>): Pair<EventPreference.Scope, Boolean>? {

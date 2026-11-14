@@ -49,7 +49,7 @@ fun planAlarms(
         }
 
         val baseMs = if (ef.advanceRelativeToEnd) endMs else startMs
-        val advanceMs = (ef.advanceMinutes ?: advanceMinutes) * 60_000L
+        val advanceMs = ef.advanceMinutesOr(advanceMinutes) * 60_000L
         val triggerMs = baseMs - advanceMs
 
         var silent = false

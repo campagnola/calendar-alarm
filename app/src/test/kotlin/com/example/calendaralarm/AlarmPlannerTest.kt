@@ -156,14 +156,23 @@ class AlarmPlannerTest {
         }
     }
 
+    @Test fun `an event's advance warning overrides filters and the default, counting from start`() {
+        val ev = event(tomorrow, 9)
+        val byEnd = EventFilter(actions = mutableListOf(FilterAction.AdvanceAction(30, relativeToEnd = true)))
+        val custom = EventPreference(EventPreference.eventKey(ev), EventPreference.Scope.EVENT, advanceMinutes = 12)
+        val flags = FilterEngine.effectiveFlags(listOf(ev), listOf(byEnd), listOf(custom))
+        val result = planAlarms(listOf(ev), flags, 5, true, quietStart, quietEnd, nowMs)
+        assertEquals(utcMs(tomorrow, 8, 48), result.single().triggerMs)
+    }
+
     @Test fun `an event's alarm choice overrides its series, which overrides filters`() {
         val ev = event(tomorrow, 9).copy(isSeries = true)
         val muteAll = EventFilter(actions = mutableListOf(FilterAction.AlarmAction(false)))
         fun enabled(vararg prefs: EventPreference) =
             FilterEngine.effectiveFlags(listOf(ev), listOf(muteAll), prefs.toList()).getValue(ev).alarmEnabled
 
-        val seriesOn = EventPreference.of(ev, EventPreference.Scope.SERIES, true)
-        val eventOff = EventPreference.of(ev, EventPreference.Scope.EVENT, false)
+        val seriesOn = EventPreference(EventPreference.seriesKey(ev), EventPreference.Scope.SERIES, alarmEnabled = true)
+        val eventOff = EventPreference(EventPreference.eventKey(ev), EventPreference.Scope.EVENT, alarmEnabled = false)
         assertEquals(false, enabled())
         assertEquals(true, enabled(seriesOn))
         assertEquals(false, enabled(seriesOn, eventOff))

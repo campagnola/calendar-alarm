@@ -166,10 +166,15 @@ class Prefs(context: Context) {
             edit.apply()
         }
 
-    fun saveEventPreference(pref: EventPreference) = synchronized(eventPreferenceLock) {
-        val prefs = eventPreferences.associateBy { it.key }.toMutableMap()
-        prefs[pref.key] = pref
-        eventPreferences = prefs.values.sortedBy { it.key }
+    /** Applies [change] to [event]'s preference for [scope], creating it if absent. */
+    fun updateEventPreference(
+        event: CalendarEvent, scope: EventPreference.Scope, change: (EventPreference) -> EventPreference
+    ) = synchronized(eventPreferenceLock) {
+        val stored = eventPreferences.associateBy { it.key }.toMutableMap()
+        val key = EventPreference.key(event, scope)
+        stored[key] = change(stored[key] ?: EventPreference(key, scope))
+            .copy(lastSeenEndMs = event.end.toEpochMilli())
+        eventPreferences = stored.values.sortedBy { it.key }
     }
 
     fun updateEventPreferenceLastSeen(events: List<CalendarEvent>) = synchronized(eventPreferenceLock) {

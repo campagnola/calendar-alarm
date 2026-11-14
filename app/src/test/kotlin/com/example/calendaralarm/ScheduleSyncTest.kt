@@ -217,14 +217,42 @@ class ScheduleSyncTest {
         activity.firstCard().performClick()
         val detailIntent = shadowOf(activity).nextStartedActivity
         val event = CalendarEvent.fromJson(detailIntent.getStringExtra(EventDetailActivity.EXTRA_EVENT_JSON)!!)
-        assertEquals(EventPreference.of(event, EventPreference.Scope.EVENT, false).key, pref.key)
+        assertEquals(EventPreference.eventKey(event), pref.key)
         val detail = Robolectric.buildActivity(EventDetailActivity::class.java, detailIntent).setup().get()
         assertEquals("Alarm disabled for this event.",
                      detail.findViewById<TextView>(R.id.alarmPreferenceStatus).text.toString())
         detail.findViewById<View>(R.id.enableEventAlarmButton).performClick()
-        assertEquals(EventPreference.of(event, EventPreference.Scope.EVENT, true), Prefs(context).eventPreferences.single())
+        assertEquals(true, Prefs(context).eventPreferences.single().alarmEnabled)
         sim.runUntil(startMs + 3 * 60_000L)
         assertEquals(listOf(todayTrigger), sim.pendingEventAlarmTriggers())
+    }
+
+    @Test fun `the event page sets a reminder interval for that event alone`() {
+        sim.setIcsContent(ics(todayEvent))
+        bootAndFirstPoll()
+        val activity = openMainActivity()
+        activity.firstCard().performClick()
+        val detailIntent = shadowOf(activity).nextStartedActivity
+        val detail = Robolectric.buildActivity(EventDetailActivity::class.java, detailIntent).setup().get()
+        val status = detail.findViewById<TextView>(R.id.advanceStatus)
+        assertEquals("Alarm 5 min before start (default).", status.text.toString())
+
+        detail.findViewById<View>(R.id.disableEventAlarmButton).performClick()
+        detail.findViewById<TextView>(R.id.advanceInput).text = "20"
+        detail.findViewById<View>(R.id.saveAdvanceButton).performClick()
+        assertEquals("Alarm 20 min before start (set for this event).", status.text.toString())
+        val pref = Prefs(context).eventPreferences.single()
+        assertEquals("the alarm choice survives", false, pref.alarmEnabled)
+        assertEquals(20, pref.advanceMinutes)
+
+        detail.findViewById<View>(R.id.enableEventAlarmButton).performClick()
+        sim.runUntil(startMs + 2 * 60_000L)
+        assertEquals(listOf(utcMs(june18, 13, 40)), sim.pendingEventAlarmTriggers())
+
+        detail.findViewById<View>(R.id.resetAdvanceButton).performClick()
+        assertEquals("Alarm 5 min before start (default).", status.text.toString())
+        sim.runUntil(startMs + 3 * 60_000L)
+        assertEquals(listOf(utcMs(june18, 13, 55)), sim.pendingEventAlarmTriggers())
     }
 
     @Test fun `the bell's tap target is a square as tall as a one-line card`() {
